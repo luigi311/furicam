@@ -1,0 +1,77 @@
+name: Build Debian Package
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-26.04-arm
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+    name: Build (${{ matrix.arch }})
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debhelper \
+            cmake \
+            qtbase5-dev \
+            qtdeclarative5-dev \
+            libegl-dev \
+            libqt5multimedia5-plugins \
+            qttools5-dev-tools \
+            libz-dev \
+            qtmultimedia5-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            pkgconf \
+            libzxing-dev \
+            libexiv2-dev \
+            libglib2.0-dev \
+            libopencv-core-dev \
+            libopencv-imgproc-dev \
+            libopencv-photo-dev
+
+      # libhybris-common is only available on Halium devices; provide a stub .so
+      # so the linker is satisfied and the binary gets the right DT_NEEDED entry.
+      # At runtime on the phone the real libhybris-common.so.1 is loaded instead.
+      # debian/shlibs.local already maps this SONAME to the libhybris-common1 package
+      # so dh_shlibdeps generates the correct Depends without needing the -dev package.
+      - name: Create libhybris-common stub for linking
+        run: |
+          MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH)
+          printf 'void* android_dlopen(const char* f, int fl){return 0;}\nvoid* android_dlsym(void* h, const char* s){return 0;}\n' \
+            > /tmp/hybris_stub.c
+          sudo gcc -shared -fPIC -Wl,-soname,libhybris-common.so.1 \
+            -o /usr/lib/$MULTIARCH/libhybris-common.so.1 /tmp/hybris_stub.c
+          sudo ln -sf libhybris-common.so.1 /usr/lib/$MULTIARCH/libhybris-common.so
+          sudo ldconfig
+
+      - name: Build Debian package
+        run: dpkg-buildpackage -d -us -uc -b
+
+      - name: Collect packages
+        run: mv ../*.deb .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: furicam-${{ matrix.arch }}
+          path: ${{ github.workspace }}/*.deb
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ github.workspace }}/*.deb
