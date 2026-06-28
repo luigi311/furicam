@@ -39,9 +39,7 @@ jobs:
             libzxing-dev \
             libexiv2-dev \
             libglib2.0-dev \
-            libopencv-core-dev \
-            libopencv-imgproc-dev \
-            libopencv-photo-dev
+            libopencv-dev
 
       # libhybris-common is only available on Halium devices; provide a stub .so
       # so the linker is satisfied and the binary gets the right DT_NEEDED entry.
