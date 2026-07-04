@@ -130,7 +130,8 @@ void Camera2Bridge::startCamera()
         emit cameraError(QStringLiteral("Camera2 unavailable: host stub build"));
         return;
     }
-    if (!session_->enumerate()) {
+    // ponytail: enumerate once; camera list doesn't change at runtime.
+    if (session_->cameras().empty() && !session_->enumerate()) {
         emit cameraError(QString::fromStdString(session_->lastError()));
         return;
     }
@@ -262,9 +263,6 @@ void Camera2Bridge::stopCameraSession()
         session_->close();
     }
     previewReader_ = nullptr;
-    // ponytail: fully destroy the session + its ACameraManager before opening
-    // another camera — some HALs need the manager delete/open cycle to complete.
-    session_.reset();
 }
 
 void Camera2Bridge::switchCamera()

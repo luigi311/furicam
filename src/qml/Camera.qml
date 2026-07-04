@@ -113,10 +113,11 @@ Item {
             }
             var targetW = found ? savedW : res[0].width
             var targetH = found ? savedH : res[0].height
-            // Only restart the camera if the target differs from what we
-            // already have — avoids an infinite restart loop since
-            // setResolution() restarts the camera, which re-triggers
-            // onReadyChanged → fnAspectRatio().
+            // Sync QML state to what startCamera() already applied.
+            // ponytail: startCamera() sets the saved resolution via setJpegSize()
+            // BEFORE startPreview(), so the camera is already at the right size.
+            // Avoid calling setResolution() here — it restarts the camera,
+            // doubling binder calls on every switch.
             if (targetW !== currentResWidth || targetH !== currentResHeight) {
                 currentResWidth = targetW
                 currentResHeight = targetH
@@ -125,13 +126,9 @@ Item {
                         var cams = settings.cameras
                         cams[camId].resWidth = targetW
                         cams[camId].resHeight = targetH
-                        settings.cameras = cams // pony: force serialization, var arrays don't auto-detect nested change
+                        settings.cameras = cams
                     }
                 }
-                // Apply the restored resolution to the camera engine.
-                // Without this, JPEGs always use max sensor size because the
-                // session starts with reqJpegW_/H_ = 0 (default).
-                cam2.setResolution(targetW, targetH)
             }
         }
     }
