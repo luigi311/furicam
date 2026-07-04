@@ -18,12 +18,18 @@ Item {
     property var scalingRatio: scalingRatio
     property var textSize: textSize
     property var avgMetadataContainerHeight: 60 * scalingRatio
+    // Driven by the enclosing Drawer's `opened` state: EXIF parsing reads the
+    // whole multi-MB file several times, so skip it entirely while closed.
+    property bool active: false
 
     Component.onCompleted: {
-        updateMetadata(currentFileUrl);
+        if (active)
+            updateMetadata(currentFileUrl);
     }
 
     function updateMetadata(url) {
+        if (!active)
+            return;
         metadataModel.clear();
         if (url !== "") {
             if (url.endsWith(".mkv") || url.endsWith(".mp4")) {
@@ -61,11 +67,15 @@ Item {
         updateMetadata(currentFileUrl);
     }
 
+    onActiveChanged: {
+        if (active)
+            updateMetadata(currentFileUrl);
+    }
+
     Rectangle {
         id: metadataRect
-        color: "#2b292a"
-        width: parent.width
-        height: 408 * scalingRatio
+        color: "transparent"
+        anchors.fill: parent
 
         Loader {
             id: contentLoader

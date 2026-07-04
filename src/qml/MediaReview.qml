@@ -31,30 +31,69 @@ Rectangle {
     property real scalingRatio: scalingRatio
     property var scaleRatio: 1.0
     property var vCenterOffsetValue: 0
+    // True while a photo is pinch-zoomed in; disables the pager's horizontal
+    // flick so dragging pans the zoomed photo instead of paging.
+    property bool zoomed: false
     property var textSize: viewRect.height * 0.018
     property var mediaState: MediaPlayer.StoppedState
+    // True once the user taps play on the current video; gates the MediaPlayer
+    // Loader so swiping between videos only ever shows thumbnails (no player
+    // create/destroy churn mid-swipe).  Reset whenever the current item changes.
+    property bool videoPlaying: false
     // Display rotation (deg) for the current video; the muxer stores it as a hint
     // the QML VideoOutput doesn't auto-apply on this backend.
     property int videoRotation: 0
     property var videoAudio: false
+    // Date shown in the header.  For videos this comes from a blocking ffprobe,
+    // so it's computed on a short debounce (dateProbeTimer) once the pager
+    // settles — running it inline on every currentFileUrl change would fire the
+    // subprocess at the swipe's mid-point flip and stutter the finger-follow.
+    property string mediaDateText: ""
     signal playbackRequest()
-    signal scanImageComponent()
     signal closed
     color: "black"
     visible: false
 
-    onCurrentFileUrlChanged: {
-        viewRect.scanImageComponent()
-        viewRect.videoRotation = isVideoFile(currentFileUrl)
-                                 ? fileManager.getVideoRotation(currentFileUrl) : 0
+    // Leave the gallery back to the viewfinder (same as the lower-left button).
+    function closeReview() {
+        viewRect.videoPlaying = false
+        viewRect.visible = false
+        viewRect.index = imgModel.count - 1
+        viewRect.closed()
     }
 
-    function openPopup(title, body, buttons, data) {
-        popupTitle = title
-        popupBody = body
-        popupButtons = buttons
-        popupData = data
-        popupState = "opened"
+    onCurrentFileUrlChanged: {
+        // Stop any playback when moving to another item.  (Video rotation is
+        // fetched lazily at play time — running ffprobe here would block the
+        // swipe exactly as the current item flips at the pager's centre.)
+        viewRect.videoPlaying = false
+        viewRect.mediaState = MediaPlayer.StoppedState
+        viewRect.updateMediaDate()
+    }
+    onVisibleChanged: if (viewRect.visible) viewRect.updateMediaDate()
+
+    // Fills the header date for the current item.  Photo dates are a fast
+    // (cached) EXIF read — set them straight away.  Video dates need ffprobe, so
+    // kick off the async probe and fill the header in when it returns (never
+    // blocks the swipe).  Also called on show because the gallery's index is set
+    // before `visible` flips true, so the first item would otherwise stay "None".
+    function updateMediaDate() {
+        if (viewRect.index === -1 || !viewRect.visible) {
+            viewRect.mediaDateText = "None"
+        } else if (isVideoFile(currentFileUrl)) {
+            viewRect.mediaDateText = ""
+            fileManager.requestVideoDate(currentFileUrl)
+        } else {
+            viewRect.mediaDateText = fileManager.getPictureDate(currentFileUrl)
+        }
+    }
+
+    Connections {
+        target: fileManager
+        function onVideoDateReady(fileUrl, date) {
+            if (fileUrl === viewRect.currentFileUrl)
+                viewRect.mediaDateText = date
+        }
     }
 
     // Forces FolderListModel to rescan the folder by briefly setting the folder
@@ -77,10 +116,6 @@ Rectangle {
         if (!u) return false
         u = u.toString()
         return u.endsWith(".mp4") || u.endsWith(".mkv")
-    }
-
-    onVisibleChanged: {
-        if (!visible) qrCodeComponent.lastValidResult =  null
     }
 
     Connections {
@@ -118,98 +153,349 @@ Rectangle {
         }
     }
 
+    // Empty-folder placeholder (SwipeView below is empty when there's no media).
     Loader {
-        id: mediaLoader
         anchors.fill: parent
-        visible: parent.visible
-        property string loadedComponentType: ""
+        active: viewRect.visible && imgModel.count === 0
+        visible: active
+        sourceComponent: emptyDirectoryComponent
+    }
 
-        sourceComponent: {
-            if (viewRect.index === -1) {
-                loadedComponentType = "empty";
-                return emptyDirectoryComponent;
-            } else if (imgModel.get(viewRect.index, "fileUrl") === undefined) {
-                loadedComponentType = "null";
-                return null;
-            } else if (viewRect.isVideoFile(imgModel.get(viewRect.index, "fileUrl"))) {
-                loadedComponentType = "video";
-                return videoOutputComponent;
-            } else {
-                loadedComponentType = "image";
-                return imageComponent;
+    // Horizontal paging view.  SwipeView gives native finger-following swipe
+    // with snap; each page decodes only when it's the current one or an
+    // immediate neighbour, so the next/previous photo is ready before you reach
+    // it and paging never hard-cuts or waits on a fresh 12MP decode.
+    SwipeView {
+        id: mediaPager
+        anchors.fill: parent
+        visible: parent.visible && imgModel.count > 0
+        clip: true
+        // Native finger-following horizontal paging stays on, but a drag that
+        // reads as vertical flips `verticalLock` (set from the page MouseArea),
+        // which disables interactive mid-gesture so a diagonal up-swipe opens the
+        // metadata drawer instead of accidentally paging.
+        property bool verticalLock: false
+        interactive: !viewRect.zoomed && deletePopUp === "closed" && !verticalLock
+
+        // Two-way sync with viewRect.index without a binding loop: a guard flag
+        // distinguishes user swipes (update viewRect) from external index
+        // changes — nav arrows, delete, folder reload (update the pager).
+        property bool syncing: false
+
+        onCurrentIndexChanged: {
+            if (syncing) return
+            if (currentIndex !== viewRect.index)
+                viewRect.index = currentIndex
+        }
+
+        Connections {
+            target: viewRect
+            function onIndexChanged() {
+                if (viewRect.index >= 0 && viewRect.index !== mediaPager.currentIndex) {
+                    mediaPager.syncing = true
+                    mediaPager.setCurrentIndex(viewRect.index)
+                    mediaPager.syncing = false
+                }
             }
         }
 
-        onVisibleChanged: {
-            if (visible && loadedComponentType === "image") {
-                viewRect.scanImageComponent.connect(mediaLoader.item.scanImage)
+        Repeater {
+            model: imgModel
+            delegate: mediaPageComponent
+        }
+    }
+
+    // One page of the pager: a photo (with pinch-zoom / pan) or a video.
+    Component {
+        id: mediaPageComponent
+        Item {
+            id: page
+            width: mediaPager.width
+            height: mediaPager.height
+
+            property string pageUrl: model.fileUrl ? model.fileUrl.toString() : ""
+            property bool isVideo: viewRect.isVideoFile(pageUrl)
+            property bool isCurrent: SwipeView.isCurrentItem
+            // Only decode the current photo and its immediate neighbours (full-
+            // res, so eager-loading all would be memory-heavy).
+            property bool nearCurrent: Math.abs(index - mediaPager.currentIndex) <= 1
+
+            // Per-video cached thumbnail (ffmpeg first frame); shown on every
+            // video page so swiping is instant and we never spin up a
+            // QMediaPlayer just to display a still.
+            property string thumbUrl: ""
+            function requestThumb() {
+                if (!isVideo || thumbUrl !== "")
+                    return
+                var t = thumbnailGenerator.cachedThumbnail(pageUrl)
+                if (t !== "")
+                    thumbUrl = t
+            }
+            Component.onCompleted: if (isVideo && nearCurrent) requestThumb()
+            onNearCurrentChanged: if (isVideo && nearCurrent) requestThumb()
+            Connections {
+                target: thumbnailGenerator
+                function onThumbnailReady(videoUrl, thumbUrl) {
+                    if (videoUrl === page.pageUrl)
+                        page.thumbUrl = thumbUrl
+                }
+            }
+
+            // ── Photo ───────────────────────────────────────────────────────
+            // The metadata "peek" (shrink + lift so the photo clears the open
+            // drawer) is applied to the container; pinch-zoom lives on the image
+            // inside, so the two never fight over the same `scale` binding.
+            Item {
+                id: imageContainer
+                anchors.fill: parent
+                visible: !page.isVideo
+                transformOrigin: Item.Center
+                scale: page.isCurrent ? viewRect.scaleRatio : 1.0
+                y: page.isCurrent ? viewRect.vCenterOffsetValue : 0
+
+                Behavior on scale {
+                    NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
+                }
+                Behavior on y {
+                    enabled: !galleryDragArea.panning
+                    NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
+                }
+
+                Image {
+                    id: image
+                    width: page.width
+                    autoTransform: true
+                    asynchronous: true
+                    cache: true
+                    transformOrigin: Item.Center
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    source: (!page.isVideo && page.nearCurrent) ? page.pageUrl : ""
+
+                    // Pinch-zoom scale (1..4); pan offsets applied when zoomed.
+                    property real panX: 0
+                    property real panY: 0
+                    x: image.panX
+                    y: parent.height / 2 - height / 2 + image.panY
+
+                    function clampPanX(v) {
+                        var m = Math.max(0, (paintedWidth * scale - page.width) / 2)
+                        return Math.max(-m, Math.min(m, v))
+                    }
+                    function clampPanY(v) {
+                        var m = Math.max(0, (paintedHeight * scale - page.height) / 2)
+                        return Math.max(-m, Math.min(m, v))
+                    }
+
+                    // Reset zoom/pan whenever this page stops being current.
+                    Connections {
+                        target: page
+                        function onIsCurrentChanged() {
+                            if (!page.isCurrent) {
+                                image.scale = 1.0
+                                image.panX = 0
+                                image.panY = 0
+                                viewRect.zoomed = false
+                            }
+                        }
+                    }
+                }
+
+                PinchArea {
+                    id: pinchArea
+                    anchors.fill: parent
+                    pinch.target: image
+                    pinch.maximumScale: 4
+                    pinch.minimumScale: 1
+                    enabled: page.isCurrent && viewRect.visible
+
+                    onPinchUpdated: {
+                        if (pinchArea.pinch.center !== undefined)
+                            image.scale = pinchArea.pinch.scale
+                    }
+                    onPinchFinished: {
+                        image.panX = image.clampPanX(image.panX)
+                        image.panY = image.clampPanY(image.panY)
+                        viewRect.zoomed = image.scale > 1.01
+                    }
+
+                    MouseArea {
+                        id: galleryDragArea
+                        anchors.fill: parent
+                        // Camera-preview pattern: the gesture MouseArea lives
+                        // inside the PinchArea (which forwards single touches to
+                        // it), so taps / vertical swipes are as reliable as the
+                        // viewfinder's.  Horizontal drags are left to SwipeView so
+                        // paging finger-follows; as soon as a drag reads vertical
+                        // we lock the pager (verticalLock) so it can't page.
+                        enabled: deletePopUp === "closed" && page.isCurrent
+                        property real startX: 0
+                        property real startY: 0
+                        property real panStartX: 0
+                        property real panStartY: 0
+                        property bool panning: false
+                        property string axis: ""      // "", "v" or "h"
+                        property int decideThreshold: 8
+                        property int swipeThreshold: 30
+
+                        onPressed: function(mouse) {
+                            startX = mouse.x
+                            startY = mouse.y
+                            panStartX = image.panX
+                            panStartY = image.panY
+                            panning = false
+                            axis = ""
+                            mediaPager.verticalLock = false
+                        }
+
+                        onPositionChanged: function(mouse) {
+                            // Zoomed: drag pans the photo.
+                            if (!pinchArea.pinch.active && image.scale > 1.01) {
+                                panning = true
+                                image.panX = image.clampPanX(panStartX + (mouse.x - startX))
+                                image.panY = image.clampPanY(panStartY + (mouse.y - startY))
+                                return
+                            }
+                            // Decide the axis early (before SwipeView's grab
+                            // distance) so a vertical drag locks out paging while a
+                            // horizontal drag is handed off to SwipeView.
+                            if (axis === "") {
+                                var dx = Math.abs(mouse.x - startX)
+                                var dy = Math.abs(mouse.y - startY)
+                                if (dx > decideThreshold || dy > decideThreshold) {
+                                    if (dy > dx) {
+                                        axis = "v"
+                                        mediaPager.verticalLock = true
+                                    } else {
+                                        axis = "h"   // SwipeView takes over the drag
+                                    }
+                                }
+                            }
+                        }
+
+                        onReleased: function(mouse) {
+                            mediaPager.verticalLock = false
+                            if (panning) {
+                                panning = false
+                                return
+                            }
+                            // Horizontal was handled by SwipeView; only react to
+                            // vertical (drawer) and taps here.
+                            if (axis === "h")
+                                return
+                            var deltaX = mouse.x - startX
+                            var deltaY = mouse.y - startY
+                            swipeGesture(deltaX, deltaY, swipeThreshold)
+                        }
+                    }
+                }
+            }
+
+            // ── Video ───────────────────────────────────────────────────────
+            Item {
+                anchors.fill: parent
+                visible: page.isVideo
+
+                // Instant still while swiping / before playback.
+                Image {
+                    id: videoThumb
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: true
+                    source: page.thumbUrl
+                }
+
+                // Gesture area for video pages — mirrors the photo one (axis
+                // detection + verticalLock) so swipe-up/down and tap behave the
+                // same over a video's thumbnail.  Disabled once playing so the
+                // player's own controls take over.
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: deletePopUp === "closed" && page.isCurrent && !viewRect.videoPlaying
+                    property real startX: 0
+                    property real startY: 0
+                    property string axis: ""
+                    property int decideThreshold: 8
+                    property int swipeThreshold: 30
+
+                    onPressed: function(mouse) {
+                        startX = mouse.x
+                        startY = mouse.y
+                        axis = ""
+                        mediaPager.verticalLock = false
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (axis === "") {
+                            var dx = Math.abs(mouse.x - startX)
+                            var dy = Math.abs(mouse.y - startY)
+                            if (dx > decideThreshold || dy > decideThreshold) {
+                                if (dy > dx) { axis = "v"; mediaPager.verticalLock = true }
+                                else axis = "h"
+                            }
+                        }
+                    }
+                    onReleased: function(mouse) {
+                        mediaPager.verticalLock = false
+                        if (axis === "h") return
+                        swipeGesture(mouse.x - startX, mouse.y - startY, swipeThreshold)
+                    }
+                }
+
+                // Player only exists while actually playing → no MediaPlayer
+                // create/destroy churn (and no mid-swipe stutter) when paging.
+                Loader {
+                    anchors.fill: parent
+                    active: page.isVideo && page.isCurrent && viewRect.videoPlaying
+                    sourceComponent: videoOutputComponent
+                }
+
+                // Play overlay, shown over the thumbnail until playback starts.
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 90 * viewRect.scalingRatio
+                    height: 90 * viewRect.scalingRatio
+                    radius: width / 2
+                    color: "#2b292a"
+                    visible: page.isCurrent && !viewRect.videoPlaying && !viewRect.hideMediaInfo
+
+                    Image {
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: 2 * viewRect.scalingRatio
+                        source: "icons/playVideo.svg"
+                        sourceSize.width: 50 * viewRect.scalingRatio
+                        sourceSize.height: 50 * viewRect.scalingRatio
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            viewRect.videoRotation = fileManager.getVideoRotation(page.pageUrl)
+                            viewRect.videoPlaying = true
+                            viewRect.mediaState = MediaPlayer.PlayingState
+                        }
+                    }
+                }
             }
         }
     }
 
     function swipeGesture(deltaX, deltaY, swipeThreshold) {
-        if (Math.abs(deltaY) > Math.abs(deltaX)) {
-            if (deltaY < -swipeThreshold) { // Upward swipe
-                viewRect.scaleRatio = 0.7
-                viewRect.vCenterOffsetValue = -(viewRect.height * 0.19)
-                drawerAnimation.to = parent.height - 70 - metadataDrawer.height
-                drawerAnimation.start()
-            } else if (deltaY > swipeThreshold) { // Downward swipe
-                viewRect.scaleRatio = 1.0
-                viewRect.vCenterOffsetValue = 0
-                drawerAnimation.to = parent.height
-                drawerAnimation.start()
+        // Horizontal paging is handled natively by the SwipeView; here we only
+        // react to vertical swipes and taps.
+        if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > swipeThreshold) {
+            if (deltaY < 0) {                       // swipe up → metadata drawer
+                metadataDrawer.open()
+                viewRect.hideMediaInfo = false
+            } else {                                // swipe down → close drawer, or
+                if (metadataDrawer.opened)          // if already closed, exit to camera
+                    metadataDrawer.close()
+                else
+                    viewRect.closeReview()
             }
-            qrCodeComponent.lastValidResult =  null
-            viewRect.hideMediaInfo = false
-        } else if (Math.abs(deltaX) > swipeThreshold) {
-            if (deltaX > 0) { // Swipe right
-                if (viewRect.index > 0) {
-                    viewRect.index -= 1
-                }
-            } else { // Swipe left
-                if (viewRect.index < imgModel.count - 1) {
-                    viewRect.index += 1
-                }
-            }
-            qrCodeComponent.lastValidResult =  null
-            viewRect.hideMediaInfo = false
-        } else { // Touch
-            qrCodeComponent.lastValidResult =  null
-            if (viewRect.hideMediaInfo === false) {
-                viewRect.scaleRatio = 1.0
-                viewRect.vCenterOffsetValue = 0
-            } else {
-                if (metadataDrawer.y <= 600) {
-                    // Match the swipe-up "peek" size (was 0.5 here, 0.7 there),
-                    // so toggling the widgets returns the photo to the same size.
-                    viewRect.scaleRatio = 0.7
-                    viewRect.vCenterOffsetValue = -(viewRect.height * 0.19)
-                }
-            }
-
+        } else if (Math.abs(deltaX) < swipeThreshold && Math.abs(deltaY) < swipeThreshold) {
             viewRect.hideMediaInfo = !viewRect.hideMediaInfo
         }
-    }
-
-    function scalePoint(point, readWidth, readHeight, imgWidth, imgHeight) {
-        var scaledX = (point.x / readWidth) * imgWidth;
-        var scaledY = (point.y / readHeight) * imgHeight;
-        return Qt.point(scaledX, scaledY);
-    }
-
-    function getScaledCorners(position, readWidth, readHeight, imgWidth, imgHeight) {
-        var scaledTopLeft = scalePoint(position.topLeft, readWidth, readHeight, imgWidth, imgHeight);
-        var scaledTopRight = scalePoint(position.topRight, readWidth, readHeight, imgWidth, imgHeight);
-        var scaledBottomLeft = scalePoint(position.bottomLeft, readWidth, readHeight, imgWidth, imgHeight);
-        var scaledBottomRight = scalePoint(position.bottomRight, readWidth, readHeight, imgWidth, imgHeight);
-
-        return {
-            topLeft: scaledTopLeft,
-            topRight: scaledTopRight,
-            bottomLeft: scaledBottomLeft,
-            bottomRight: scaledBottomRight
-        };
     }
 
     Component {
@@ -251,230 +537,67 @@ Rectangle {
             }
         }
     }
-
-    Component {
-        id: imageComponent
-        Item {
-            id: imageContainer
-            anchors.fill: parent
-            property var positionData
-
-            Image {
-                id: image
-                width: viewRect.width
-                autoTransform: true
-                transformOrigin: Item.Center
-                scale: viewRect.scaleRatio
-                fillMode: Image.PreserveAspectFit
-                smooth: true
-                source: (viewRect.currentFileUrl && !viewRect.isVideoFile(viewRect.currentFileUrl)) ? viewRect.currentFileUrl : ""
-
-                // Pan offsets (px), applied when zoomed in.  x is otherwise 0 and y
-                // keeps the image vertically centred (plus the metadata-drawer peek).
-                property real panX: 0
-                property real panY: 0
-                x: image.panX
-                y: parent.height / 2 - height / 2 + viewRect.vCenterOffsetValue + image.panY
-
-                // Largest pan that still keeps the scaled image covering the view.
-                function clampPanX(v) {
-                    var m = Math.max(0, (paintedWidth * scale - viewRect.width) / 2)
-                    return Math.max(-m, Math.min(m, v))
-                }
-                function clampPanY(v) {
-                    var m = Math.max(0, (paintedHeight * scale - viewRect.height) / 2)
-                    return Math.max(-m, Math.min(m, v))
-                }
-
-                // New photo: clear pinch-zoom and pan, but keep the metadata "peek"
-                // (scaleRatio / vCenterOffset) so the half-height + open-properties
-                // view persists when swiping between photos.
-                onSourceChanged: {
-                    image.scale = Qt.binding(function() { return viewRect.scaleRatio })
-                    image.panX = 0
-                    image.panY = 0
-                }
-
-                Behavior on scale {
-                    NumberAnimation {
-                        duration: 300
-                        easing.type: Easing.InOutQuad
-                    }
-                }
-                Behavior on y {
-                    // Don't animate while the user is dragging to pan.
-                    enabled: !galleryDragArea.panning
-                    NumberAnimation{
-                        duration: 300
-                        easing.type: Easing.InOutQuad
-                    }
-                }
-            }
-
-            function scanImageURL() {
-                var result = QRCodeHandler.scanImageURL(currentFileUrl)
-
-                if (result.isValid) {
-                    imageContainer.positionData = getScaledCorners(result.position, result.readWidth, result.readHeight, image.width, image.height)
-
-                    qrCodeComponent.smoothedPosition = imageContainer.positionData
-
-                    qrCodeComponent.updateLowPass(imageContainer.positionData);
-
-                    qrCodeComponent.updateOBBFromImage(imageContainer.positionData, image.scale, image.x, image.y);
-
-                    qrCodeComponent.lastValidResult = result
-                } else {
-                    qrCodeComponent.lastValidResult = null
-                }
-            }
-
-            function scanImage() {
-                if (!image || typeof image.grabToImage !== "function") return;
-                image.grabToImage(function(result) {
-                    if (result.image) {
-                        var qrCodeResult = QRCodeHandler.scanImage(result.image);
-
-                        if (qrCodeResult.isValid) {
-                            imageContainer.positionData = getScaledCorners(qrCodeResult.position, qrCodeResult.readWidth, qrCodeResult.readHeight, image.width, image.height)
-
-                            qrCodeComponent.smoothedPosition = imageContainer.positionData
-
-                            qrCodeComponent.updateLowPass(imageContainer.positionData);
-
-                            qrCodeComponent.updateOBBFromImage(imageContainer.positionData, image.scale, image.x, image.y);
-
-                            qrCodeComponent.lastValidResult = qrCodeResult
-                        } else {
-                            qrCodeComponent.lastValidResult = null
-                        }
-                    } else {
-                        console.error("Failed to grab image for QR scanning.");
-                        qrCodeComponent.lastValidResult = null;
-                    }
-                });
-            }
-
-            PinchArea {
-                id: pinchArea
-                anchors.fill: parent
-                pinch.target: image
-                pinch.maximumScale: 4
-                pinch.minimumScale: 1
-                enabled: viewRect.visible
-
-                onPinchUpdated: {
-                    if (pinchArea.pinch.center !== undefined)
-                        image.scale = pinchArea.pinch.scale
-                }
-                onPinchFinished: {
-                    image.panX = image.clampPanX(image.panX)
-                    image.panY = image.clampPanY(image.panY)
-                }
-
-                MouseArea {
-                    id: galleryDragArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    enabled: deletePopUp === "closed"
-                    property real startX: 0
-                    property real startY: 0
-                    property real panStartX: 0
-                    property real panStartY: 0
-                    property bool panning: false
-                    property int swipeThreshold: 30
-
-                    onPressed: function(mouse) {
-                        startX = mouse.x
-                        startY = mouse.y
-                        panStartX = image.panX
-                        panStartY = image.panY
-                        panning = false
-                    }
-
-                    // While zoomed in, dragging pans the photo instead of swiping to
-                    // the next/previous one, so the two gestures don't collide.
-                    onPositionChanged: function(mouse) {
-                        if (!pinchArea.pinch.active && image.scale > 1.01) {
-                            panning = true
-                            image.panX = image.clampPanX(panStartX + (mouse.x - startX))
-                            image.panY = image.clampPanY(panStartY + (mouse.y - startY))
-                        }
-                    }
-
-                    onPressAndHold: {
-                        if (image.scale <= 1.01)
-                            scanImageURL()
-                    }
-
-                    onReleased: function(mouse) {
-                        if (panning) {
-                            panning = false
-                            return
-                        }
-
-                        var deltaX = mouse.x - startX
-                        var deltaY = mouse.y - startY
-
-                        if (mediaMenu.visible){
-                            scanImageTimer.start()
-                        }
-
-                        swipeGesture(deltaX, deltaY, swipeThreshold)
-                    }
-                }
-            }
-
-            Timer {
-                id: updateObbFromImageScan
-                interval: 1000 / 120
-                running: !!qrCodeComponent.lastValidResult && !qrCodeComponent.viewfinder
-                onTriggered: {
-                    if (!qrCodeComponent.lastValidResult) return
-
-                    qrCodeComponent.updateOBBFromImage(imageContainer.positionData, image.scale, image.x, image.y)
-                    updateObbFromImageScan.start()
-                }
-            }
-
-            Timer {
-                id: scanImageTimer
-                interval: 1000 / 120
-                running: false;
-                repeat: false
-                onTriggered: {
-                    if (mediaDate.visible){
-                        scanImageURL()
-                    }
-                }
-            }
-
-            onVisibleChanged: {
-                if (visible) {
-                    scanImage()
-                }
-            }
-        }
-    }
-
-    MetadataView {
+    // Native bottom-edge Drawer, styled to match the settings panel in main.qml
+    // (rounded dark background + drag handle, finger-following via `interactive`).
+    Drawer {
         id: metadataDrawer
-        width: parent.width
-        height: parent.height / 2.6
-        y: parent.height
-        visible: !viewRect.hideMediaInfo
+        edge: Qt.BottomEdge
+        width: viewRect.width
+        height: viewRect.height / 2.6
+        dim: false
+        modal: false
+        interactive: viewRect.visible
+        dragMargin: 0   // open via the swipe gesture, not an edge-grab that would
+                        // steal touches from the bottom controls; still drag-to-dismiss
 
-        PropertyAnimation {
-            id: drawerAnimation
-            target: metadataDrawer
-            property: "y"
-            duration: 500
-            easing.type: Easing.InOutQuad
+        background: Rectangle {
+            color: "#2b292a"
+            radius: 16 * viewRect.scalingRatio
+            // Square off the bottom corners so the rounded top meets the screen edge.
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: parent.radius
+                color: parent.color
+            }
         }
 
-        currentFileUrl: viewRect.currentFileUrl
-        textSize: viewRect.textSize
-        scalingRatio: viewRect.scalingRatio
+        onOpened: {
+            viewRect.scaleRatio = 0.7
+            viewRect.vCenterOffsetValue = -(viewRect.height * 0.19)
+        }
+        onClosed: {
+            viewRect.scaleRatio = 1.0
+            viewRect.vCenterOffsetValue = 0
+        }
+
+        Column {
+            anchors.fill: parent
+            spacing: 0
+
+            // Drag-handle pill, matching the settings drawer.
+            Item {
+                width: parent.width
+                height: 18 * viewRect.scalingRatio
+                Rectangle {
+                    width: 40 * viewRect.scalingRatio
+                    height: 4 * viewRect.scalingRatio
+                    radius: 2 * viewRect.scalingRatio
+                    color: "#666"
+                    anchors.centerIn: parent
+                }
+            }
+
+            MetadataView {
+                id: metadataContent
+                width: parent.width
+                height: parent.height - 18 * viewRect.scalingRatio
+                active: metadataDrawer.opened
+                currentFileUrl: viewRect.currentFileUrl
+                textSize: viewRect.textSize
+                scalingRatio: viewRect.scalingRatio
+            }
+        }
     }
 
     Component {
@@ -483,9 +606,6 @@ Rectangle {
         Item {
             id: videoItem
             anchors.fill: parent
-            property bool firstFramePlayed: false
-
-            signal playbackStateChange()
 
             Connections {
                 target: viewRect
@@ -496,24 +616,14 @@ Rectangle {
 
             MediaPlayer {
                 id: mediaPlayer
+                // The Loader only exists once the user hit play, so start
+                // immediately on creation.
                 autoPlay: true
                 videoOutput: videoOutput
                 audioOutput: AudioOutput {
                     muted: viewRect.videoAudio
                 }
                 source: viewRect.visible ? viewRect.currentFileUrl : ""
-
-                onSourceChanged: {
-                    firstFramePlayed = false;
-                    play();
-                }
-
-                onPositionChanged: {
-                    if (position > 0 && !firstFramePlayed) {
-                        pause();
-                        firstFramePlayed = true;
-                    }
-                }
 
                 onPlaybackStateChanged: {
                     if (mediaPlayer.playbackState === MediaPlayer.StoppedState) {
@@ -522,6 +632,9 @@ Rectangle {
                     } else if (mediaPlayer.playbackState === MediaPlayer.PausedState) {
                         viewRect.mediaState = MediaPlayer.PausedState
                         playVideoButtonFrame.visible = true
+                    } else {
+                        viewRect.mediaState = MediaPlayer.PlayingState
+                        playVideoButtonFrame.visible = false
                     }
                 }
             }
@@ -546,55 +659,60 @@ Rectangle {
             MouseArea {
                 id: galleryDragArea
                 anchors.fill: parent
-                hoverEnabled: true
                 enabled: deletePopUp === "closed"
                 property real startX: 0
                 property real startY: 0
+                property string axis: ""
+                property int decideThreshold: 8
                 property int swipeThreshold: 30
 
-                onPressed: {
+                onPressed: function(mouse) {
                     startX = mouse.x
                     startY = mouse.y
+                    axis = ""
+                    mediaPager.verticalLock = false
                 }
-
-                onReleased: {
-                    var deltaX = mouse.x - startX
-                    var deltaY = mouse.y - startY
-
-                    swipeGesture(deltaX, deltaY, swipeThreshold)
+                onPositionChanged: function(mouse) {
+                    if (axis === "") {
+                        var dx = Math.abs(mouse.x - startX)
+                        var dy = Math.abs(mouse.y - startY)
+                        if (dx > decideThreshold || dy > decideThreshold) {
+                            if (dy > dx) { axis = "v"; mediaPager.verticalLock = true }
+                            else axis = "h"
+                        }
+                    }
+                }
+                onReleased: function(mouse) {
+                    mediaPager.verticalLock = false
+                    if (axis === "h") return
+                    swipeGesture(mouse.x - startX, mouse.y - startY, swipeThreshold)
                 }
             }
 
+            // Tap-to-resume overlay when the video is paused mid-playback.
             Rectangle {
                 id: playVideoButtonFrame
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.horizontalCenter: videoItem.horizontalCenter
+                anchors.centerIn: parent
                 width: 90 * viewRect.scalingRatio
                 height: 90 * viewRect.scalingRatio
-                radius: 150 * viewRect.scaleRatio
+                radius: width / 2
                 color: "#2b292a"
+                visible: false
 
-                Button {
-                    id: playVideoButton
-                    icon.source: "icons/playVideo.svg"
-                    icon.color: "#f0f0f0"
+                Image {
                     anchors.centerIn: parent
                     anchors.horizontalCenterOffset: 2 * viewRect.scalingRatio
-                    icon.width: 50 * viewRect.scalingRatio
-                    icon.height: 50 * viewRect.scalingRatio
-                    visible: true
-                    flat: true
-                    highlighted: false
+                    source: "icons/playVideo.svg"
+                    sourceSize.width: 50 * viewRect.scalingRatio
+                    sourceSize.height: 50 * viewRect.scalingRatio
                 }
 
                 MouseArea {
                     anchors.fill: parent
                     onClicked: {
-                        if (viewRect.isVideoFile(viewRect.currentFileUrl)) {
-                            viewRect.mediaState = MediaPlayer.PlayingState
-                            parent.visible = parent.visible ? false : true
-                            playbackRequest()
-                        }
+                        viewRect.mediaState = MediaPlayer.PlayingState
+                        parent.visible = false
+                        playbackRequest()
                     }
                 }
             }
@@ -700,10 +818,7 @@ Rectangle {
                     }
 
                     onClicked: {
-                        viewRect.visible = false
-                        playbackRequest();
-                        viewRect.index = imgModel.count - 1
-                        viewRect.closed();
+                        viewRect.closeReview()
                     }
                 }
 
@@ -859,10 +974,7 @@ Rectangle {
                     }
 
                     onClicked: {
-                        viewRect.visible = false
-                        playbackRequest();
-                        viewRect.index = imgModel.count - 1
-                        viewRect.closed();
+                        viewRect.closeReview()
                     }
                 }
 
@@ -924,17 +1036,7 @@ Rectangle {
 
         Text {
             id: date
-            text: {
-                if (!viewRect.visible || viewRect.index === -1) {
-                    return "None"
-                } else {
-                    if (viewRect.isVideoFile(viewRect.currentFileUrl)) {
-                        return fileManager.getVideoDate(viewRect.currentFileUrl)
-                    } else {
-                        return fileManager.getPictureDate(viewRect.currentFileUrl)
-                    }
-                }
-            }
+            text: viewRect.mediaDateText
 
             anchors.fill: parent
             anchors.margins: 5
@@ -947,11 +1049,5 @@ Rectangle {
             styleColor: "black"
             font.pixelSize: viewRect.textSize
         }
-    }
-
-    QrCode {
-        id: qrCodeComponent
-        viewfinder: null
-        openPopupFunction: openPopup
     }
 }
