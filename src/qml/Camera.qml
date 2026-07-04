@@ -192,7 +192,12 @@ Item {
         cameraLoader.active = false
     }
 
-    function handleStartCamera() { cam2.startCamera() }
+    // Returning from the gallery: the preview was never torn down (opening the
+    // gallery just hid it), so only start if the session actually isn't live.
+    // Restarting a live session pointlessly reopens the camera — and in video
+    // mode also rebuilds it with the encoder surface, which is the multi-second
+    // stall on "return to camera".
+    function handleStartCamera() { if (!cam2.ready) cam2.startCamera() }
 
     function handleSetFocusMode(focusMode) {
         // window.focusContinuous -> continuous AF; window.focusAuto (the app's
@@ -484,12 +489,18 @@ Item {
                         if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > swipeThreshold) {
                             if (deltaY > 0) { // Swipe down
                                 configBarDrawer.open()
-                            } else { // Swipe up — flip camera
-                                window.blurView = 1;
-                                settings.flashMode = window.flashOff
-                                settings.cameraPosition = settings.cameraPosition === window.backFace ? window.frontFace : window.backFace;
-                                settings.flashMode = settings.cameraPosition === window.frontFace ? window.flashOff : settings.flashMode;
-                                cameraSwitchDelay.start();
+                            } else { // Swipe up
+                                if (configBarDrawer.opened) {
+                                    // Collapse the menu first; a second swipe-up
+                                    // then flips the camera.
+                                    configBarDrawer.close()
+                                } else { // Flip camera
+                                    window.blurView = 1;
+                                    settings.flashMode = window.flashOff
+                                    settings.cameraPosition = settings.cameraPosition === window.backFace ? window.frontFace : window.backFace;
+                                    settings.flashMode = settings.cameraPosition === window.frontFace ? window.flashOff : settings.flashMode;
+                                    cameraSwitchDelay.start();
+                                }
                             }
                         } else if (Math.abs(deltaX) > swipeThreshold) {
                             if (deltaX > 0) { // Swipe right
