@@ -210,6 +210,7 @@ ApplicationWindow {
         property real colorCorrectionBlue:  1.00
         property real colorCorrectionSaturation: 1.20
         property bool hdrEnabled: false
+        property bool hdrSaveEv0: false      // also keep the un-fused EV0 frame as a backup
         property bool rawEnabled: false     // RAW (DNG) capture alongside JPEG
         property bool manualExposureEnabled: false
         property int  manualIso: 200
@@ -2364,6 +2365,49 @@ ApplicationWindow {
                         border.color: eisSwitch.checked ? "#62a0ea" : "#555"
                         Rectangle {
                             x: eisSwitch.checked ? parent.width - width - 2 * window.scalingRatio : 2 * window.scalingRatio
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 22 * window.scalingRatio
+                            height: 22 * window.scalingRatio
+                            radius: 11 * window.scalingRatio
+                            color: "white"
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width - 32 * window.scalingRatio
+                height: 1
+                color: "#444"
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            // ── HDR: keep the un-fused EV0 baseline frame ──────────────────
+            Row {
+                leftPadding: 16 * window.scalingRatio
+                spacing: 12 * window.scalingRatio
+
+                Text {
+                    text: "Keep HDR backup frame"
+                    color: "white"
+                    font.pixelSize: 18 * window.scalingRatio
+                    font.bold: true
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Switch {
+                    id: hdrEv0Switch
+                    checked: settings.hdrSaveEv0
+                    onToggled: settings.hdrSaveEv0 = checked
+                    anchors.verticalCenter: parent.verticalCenter
+                    indicator: Rectangle {
+                        implicitWidth: 48 * window.scalingRatio
+                        implicitHeight: 26 * window.scalingRatio
+                        radius: 13 * window.scalingRatio
+                        color: hdrEv0Switch.checked ? "#62a0ea" : "#666"
+                        border.color: hdrEv0Switch.checked ? "#62a0ea" : "#555"
+                        Rectangle {
+                            x: hdrEv0Switch.checked ? parent.width - width - 2 * window.scalingRatio : 2 * window.scalingRatio
                             anchors.verticalCenter: parent.verticalCenter
                             width: 22 * window.scalingRatio
                             height: 22 * window.scalingRatio

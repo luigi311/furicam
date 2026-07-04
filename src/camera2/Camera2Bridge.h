@@ -94,6 +94,7 @@ class Camera2Bridge
     // HDR mode — bind to the GUI's HDR toggle.  When on, capturePhoto() takes a
     // short burst and fuses it (HdrProcessor); the GUI stays a one-line binding.
     Q_PROPERTY(bool    hdrEnabled          READ hdrEnabled WRITE setHdrEnabled NOTIFY hdrEnabledChanged)
+    Q_PROPERTY(bool    hdrSaveEv0          READ hdrSaveEv0 WRITE setHdrSaveEv0 NOTIFY hdrSaveEv0Changed)
     Q_PROPERTY(bool    hdrBusy             READ hdrBusy                         NOTIFY hdrBusyChanged)
     Q_PROPERTY(bool    hdrCapturing        READ hdrCapturing                    NOTIFY hdrCapturingChanged)
 
@@ -126,9 +127,11 @@ public:
     int     focusDistanceCalibration() const { return focusDistanceCalibration_.load(); }
     qreal   previewAspectRatio()  const { return previewAspectRatio_.load(); }
     bool    hdrEnabled()          const { return hdrEnabled_.load(); }
+    bool    hdrSaveEv0()          const { return hdrSaveEv0_.load(); }
     bool    hdrBusy()             const { return hdrBurstActive_ || hdrProcessing_; }
     bool    hdrCapturing()        const { return hdrBurstActive_; }
     void    setHdrEnabled(bool on);
+    void    setHdrSaveEv0(bool on) { if (hdrSaveEv0_.exchange(on) != on) emit hdrSaveEv0Changed(); }
     int     flashMode()           const { return flashMode_; }
     QString lastPhotoPath()       const { QMutexLocker lk(&lastPhotoMutex_); return lastPhotoPath_; }
 
@@ -284,6 +287,7 @@ signals:
     void videoSizeChanged();
     void videoBitrateChanged();
     void hdrEnabledChanged();
+    void hdrSaveEv0Changed();
     void hdrBusyChanged();
     void hdrCapturingChanged();
     void flashModeChanged();
@@ -365,6 +369,7 @@ private:
     // HDR burst state (GUI thread).  kHdrFrames matches the 3-frame burst.
     static constexpr int kHdrFrames = 3;
     std::atomic<bool> hdrEnabled_     {false};
+    std::atomic<bool> hdrSaveEv0_     {false};
     bool              hdrBurstActive_ = false;
     bool              hdrProcessing_  = false;
     int               hdrBurstPending_ = 0;  // frames still expected from captureBurst

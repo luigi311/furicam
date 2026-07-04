@@ -804,8 +804,10 @@ void Camera2Bridge::onPhotoCaptured(const QString& path, bool ok)
 }
 
 // Fuse the burst on a worker thread (OpenCV is heavy), then emit photoSaved.
-// The EV 0 frame is also saved as a standard photo so the user always has a
-// clean baseline image even if the HDR fusion result is misaligned.
+// When hdrSaveEv0 is on, the EV 0 frame is also saved as a standard photo so
+// the user has a clean baseline image even if the HDR fusion result is
+// misaligned; it's off by default since HDR fusion is reliable enough that
+// keeping the extra frame every shot is just wasteful.
 void Camera2Bridge::finishHdrBurst()
 {
     const QStringList paths = hdrPaths_;
@@ -820,7 +822,7 @@ void Camera2Bridge::finishHdrBurst()
     std::thread([this, paths, outDir] {
         // Copy EV 0 frame to a permanent file before processHdrBurst() deletes the temps.
         QString ev0Path;
-        if (!paths.isEmpty()) {
+        if (hdrSaveEv0_.load() && !paths.isEmpty()) {
             ev0Path = QDir(outDir).filePath(
                 QStringLiteral("IMG_%1.jpg").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")));
             if (!QFile::copy(paths[0], ev0Path)) {

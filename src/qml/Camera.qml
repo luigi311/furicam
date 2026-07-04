@@ -398,6 +398,7 @@ Item {
         // Centre vertically in the area above the bottom control bar
         y: Math.max(0, (parent.height - height) / 2 - window.controlBarReservedHeight / 2)
         hdrEnabled: settings.hdrEnabled   // HDR burst+fuse handled in the bridge
+        hdrSaveEv0: settings.hdrSaveEv0   // also keep the un-fused EV0 baseline frame
         // Flash mode tracks the GUI setting reactively (applied on startup + every
         // change), mapping the QtMultimedia enum to the engine's 0=off/1=on/2=auto.
         flashMode: (settings.flashMode === window.flashOn) ? 1
