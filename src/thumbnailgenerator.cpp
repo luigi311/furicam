@@ -12,7 +12,11 @@
 #include <QUrl>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QDateTime>
 #include <QDebug>
+#include <QStandardPaths>
+#include <QCryptographicHash>
 
 ThumbnailGenerator::ThumbnailGenerator(QObject *parent) : QObject(parent) {
     qRegisterMetaType<QImage>("QImage");
@@ -75,4 +79,74 @@ QString ThumbnailGenerator::toQmlImage(const QImage &image) {
     QBuffer buffer(&byteArray);
     image.save(&buffer, "PNG");
     return QString("data:image/png;base64,") + QString(byteArray.toBase64());
+}
+
+QString ThumbnailGenerator::cachePathFor(const QString &localPath) const {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                        + QStringLiteral("/vidthumbs");
+    QDir().mkpath(dir);
+    // Key on path + mtime so a replaced/re-encoded file gets a fresh thumbnail.
+    QFileInfo fi(localPath);
+    const QString key = localPath + QString::number(fi.lastModified().toSecsSinceEpoch());
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Md5).toHex());
+    return dir + QLatin1Char('/') + hash + QStringLiteral(".jpg");
+}
+
+QString ThumbnailGenerator::cachedThumbnail(const QString &videoUrl) {
+    QString path = videoUrl;
+    const QUrl u(videoUrl);
+    if (u.isLocalFile())
+        path = u.toLocalFile();
+    if (path.isEmpty() || !QFile::exists(path))
+        return QString();
+
+    const QString out = cachePathFor(path);
+    if (QFile::exists(out))
+        return QUrl::fromLocalFile(out).toString();
+
+    // Not cached yet — enqueue (de-duplicated) and let the worker generate it.
+    if (m_curReqUrl != videoUrl && !m_pending.contains(videoUrl))
+        m_pending.enqueue(videoUrl);
+    processQueue();
+    return QString();
+}
+
+void ThumbnailGenerator::processQueue() {
+    if (m_cacheProc || m_pending.isEmpty())
+        return;
+
+    m_curReqUrl = m_pending.dequeue();
+    QString path = m_curReqUrl;
+    const QUrl u(m_curReqUrl);
+    if (u.isLocalFile())
+        path = u.toLocalFile();
+    m_curOutPath = cachePathFor(path);
+
+    if (QFile::exists(m_curOutPath)) {
+        emit thumbnailReady(m_curReqUrl, QUrl::fromLocalFile(m_curOutPath).toString());
+        m_curReqUrl.clear();
+        processQueue();
+        return;
+    }
+
+    m_cacheProc = new QProcess(this);
+    connect(m_cacheProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int, QProcess::ExitStatus) {
+        if (QFile::exists(m_curOutPath))
+            emit thumbnailReady(m_curReqUrl, QUrl::fromLocalFile(m_curOutPath).toString());
+        m_cacheProc->deleteLater();
+        m_cacheProc = nullptr;
+        m_curReqUrl.clear();
+        processQueue();
+    });
+
+    QStringList args;
+    args << QStringLiteral("-y")
+         << QStringLiteral("-loglevel") << QStringLiteral("error")
+         << QStringLiteral("-i") << path
+         << QStringLiteral("-frames:v") << QStringLiteral("1")
+         << QStringLiteral("-vf") << QStringLiteral("scale=480:-2")
+         << m_curOutPath;
+    m_cacheProc->start(QStringLiteral("/usr/bin/ffmpeg"), args);
 }

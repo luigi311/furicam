@@ -46,6 +46,10 @@ public:
     Q_INVOKABLE QString runMkvInfo(const QString &fileUrl);
     Q_INVOKABLE void finalizeMkv(const QString &fileUrl);
     Q_INVOKABLE QString getVideoDate(const QString &fileUrl);
+    // Asynchronous variant: spawns ffprobe without blocking the UI thread and
+    // emits videoDateReady() when done.  The gallery uses this so paging between
+    // videos never stalls on a subprocess mid-swipe.
+    Q_INVOKABLE void requestVideoDate(const QString &fileUrl);
     Q_INVOKABLE int getVideoRotation(const QString &fileUrl);
     Q_INVOKABLE QString getVideoDimensions(const QString &fileUrl);
     Q_INVOKABLE QString getDuration(const QString &fileUrl);
@@ -69,6 +73,7 @@ public:
 
 signals:
     void gpsDataReady();
+    void videoDateReady(const QString &fileUrl, const QString &date);
 
 private slots:
     void onLocationUpdated();
@@ -77,6 +82,17 @@ private slots:
 private:
     GeoClueFind* m_geoClueInstance;
     int *m_locationAvailable;
+
+    // Single-entry cache for easyexif parses: the metadata drawer calls
+    // getPictureMetaData() once per field (~6x) for the same file, and each
+    // call otherwise reads the whole multi-MB JPEG off disk and re-parses it.
+    QString m_metaCachePath;
+    easyexif::EXIFInfo m_metaCache;
+    bool m_metaCacheValid = false;
+
+    // Shared formatter for getVideoDate()/requestVideoDate(): turns ffprobe's
+    // creation_time output (or the file mtime fallback) into the display string.
+    QString formatVideoDate(const QString &probeOut, const QString &path);
 };
 
 #endif // FILEMANAGER_H

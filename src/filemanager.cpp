@@ -113,6 +113,8 @@ QStringList FileManager::decimalToDMS(double decimal, bool isLongitude) { // Thi
 
 void FileManager::appendGPSMetadata(const QString &fileUrl) {
 
+    m_metaCacheValid = false;   // this file's EXIF is about to change
+
     QStringList coordinates = getCurrentLocation();
 
     if (coordinates.size() != 4) {
@@ -163,6 +165,7 @@ void FileManager::appendGPSMetadata(const QString &fileUrl) {
 // Record the app's capture settings into the file's EXIF UserComment (works for
 // JPEG and, via exiv2's TIFF support, DNG).  Read back by getCaptureSettings().
 void FileManager::writeCaptureSettings(const QString &fileUrl, const QString &summary) {
+    m_metaCacheValid = false;   // this file's EXIF is about to change
     QString path = fileUrl;
     const QUrl u(fileUrl);
     if (u.isLocalFile())
@@ -249,11 +252,19 @@ easyexif::EXIFInfo FileManager::getPictureMetaData(const QString &fileUrl){
         filePath.remove(0, colonIndex + 1);
     }
 
+    if (m_metaCacheValid && m_metaCachePath == filePath) {
+        return m_metaCache;
+    }
+
     QFile mediaFile(filePath);
     if (!mediaFile.open(QIODevice::ReadOnly)) {
         qDebug() << "Can't open media file: " << filePath;
     }
 
+    // easyexif resolves some IFD offsets against the whole file, so it needs the
+    // full JPEG, not just the APP1 header — truncating corrupts the parse.  The
+    // real cost was re-reading/re-parsing once per metadata field (6+ times per
+    // swipe); the single-entry cache below collapses that to one read per photo.
     QByteArray fileContent = mediaFile.readAll();
     if (fileContent.isEmpty()) {
         qDebug() << "Can't open media file: " << filePath;
@@ -265,6 +276,10 @@ easyexif::EXIFInfo FileManager::getPictureMetaData(const QString &fileUrl){
     if (code) {
         qWarning() << "Error parsing EXIF: code" << code;
     }
+
+    m_metaCachePath = filePath;
+    m_metaCache = result;
+    m_metaCacheValid = true;
 
     return result;
 }
@@ -542,29 +557,16 @@ void FileManager::finalizeMkv(const QString &fileUrl) {
     }
 }
 
-QString FileManager::getVideoDate(const QString &fileUrl) {
-    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
-
-    // Read the container's creation_time via ffprobe (works for both .mp4 and
-    // .mkv); fall back to the file's modification time.  The previous mkvinfo
-    // path only reads Matroska, so the Camera2 .mp4 files showed "Date not found".
+QString FileManager::formatVideoDate(const QString &probeOut, const QString &path) {
     QDateTime dateTime;
-    QProcess probe;
-    probe.start("ffprobe", QStringList()
-                << "-v" << "error"
-                << "-show_entries" << "format_tags=creation_time"
-                << "-of" << "default=noprint_wrappers=1:nokey=1"
-                << path);
-    if (probe.waitForFinished(3000)) {
-        const QString out = QString::fromUtf8(probe.readAllStandardOutput()).trimmed();
-        if (out.length() >= 19) {
-            // e.g. "2026-06-23T02:45:06.000000Z" — parse the seconds-precision
-            // UTC instant and present it in local time.
-            QDateTime utc = QDateTime::fromString(out.left(19), "yyyy-MM-ddTHH:mm:ss");
-            if (utc.isValid()) {
-                utc.setTimeSpec(Qt::UTC);
-                dateTime = utc.toLocalTime();
-            }
+    const QString out = probeOut.trimmed();
+    if (out.length() >= 19) {
+        // e.g. "2026-06-23T02:45:06.000000Z" — parse the seconds-precision
+        // UTC instant and present it in local time.
+        QDateTime utc = QDateTime::fromString(out.left(19), "yyyy-MM-ddTHH:mm:ss");
+        if (utc.isValid()) {
+            utc.setTimeSpec(Qt::UTC);
+            dateTime = utc.toLocalTime();
         }
     }
     if (!dateTime.isValid())
@@ -578,6 +580,47 @@ QString FileManager::getVideoDate(const QString &fileUrl) {
         return dateTime.toString("MMM d, yyyy · HH:mm");
     else
         return dateTime.toString("MMM d, yyyy · h:mm AP");
+}
+
+QString FileManager::getVideoDate(const QString &fileUrl) {
+    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
+
+    // Read the container's creation_time via ffprobe (works for both .mp4 and
+    // .mkv); fall back to the file's modification time.  The previous mkvinfo
+    // path only reads Matroska, so the Camera2 .mp4 files showed "Date not found".
+    QProcess probe;
+    probe.start("ffprobe", QStringList()
+                << "-v" << "error"
+                << "-show_entries" << "format_tags=creation_time"
+                << "-of" << "default=noprint_wrappers=1:nokey=1"
+                << path);
+    QString out;
+    if (probe.waitForFinished(3000))
+        out = QString::fromUtf8(probe.readAllStandardOutput());
+    return formatVideoDate(out, path);
+}
+
+void FileManager::requestVideoDate(const QString &fileUrl) {
+    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
+
+    // ponytail: one QProcess per call, self-deleting on finish. Gallery only
+    // probes the item you land on, so there's no burst to pool for.
+    QProcess *probe = new QProcess(this);
+    connect(probe, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, probe, fileUrl, path](int, QProcess::ExitStatus) {
+        const QString out = QString::fromUtf8(probe->readAllStandardOutput());
+        emit videoDateReady(fileUrl, formatVideoDate(out, path));
+        probe->deleteLater();
+    });
+    connect(probe, &QProcess::errorOccurred, this, [this, probe, fileUrl, path](QProcess::ProcessError) {
+        emit videoDateReady(fileUrl, formatVideoDate(QString(), path));
+        probe->deleteLater();
+    });
+    probe->start("ffprobe", QStringList()
+                 << "-v" << "error"
+                 << "-show_entries" << "format_tags=creation_time"
+                 << "-of" << "default=noprint_wrappers=1:nokey=1"
+                 << path);
 }
 
 int FileManager::getVideoRotation(const QString &fileUrl) {
@@ -606,24 +649,27 @@ int FileManager::getVideoRotation(const QString &fileUrl) {
 }
 
 QString FileManager::getVideoDimensions(const QString &fileUrl) {
-    QString output = runMkvInfo(fileUrl);
-    QStringList outputLines = output.split('\n');
-    QString width, height;
-
-    for (const QString &line : outputLines) {
-        if (line.contains("Pixel width")) {
-            width = line.split(':').last().trimmed();
-        } else if (line.contains("Pixel height")) {
-            height = line.split(':').last().trimmed();
+    // ffprobe (not mkvinfo) so this works for the Camera2 .mp4 files too, not
+    // just legacy .mkv.
+    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
+    QProcess probe;
+    probe.start("ffprobe", QStringList()
+                << "-v" << "error"
+                << "-select_streams" << "v:0"
+                << "-show_entries" << "stream=width,height"
+                << "-of" << "default=noprint_wrappers=1:nokey=1"
+                << path);
+    if (probe.waitForFinished(3000)) {
+        const QStringList lines = QString::fromUtf8(probe.readAllStandardOutput())
+                                  .trimmed().split('\n', Qt::SkipEmptyParts);
+        if (lines.size() >= 2) {
+            const QString w = lines.at(0).trimmed();
+            const QString h = lines.at(1).trimmed();
+            if (!w.isEmpty() && !h.isEmpty())
+                return QString("%1x%2").arg(w, h);
         }
     }
-
-    if (!width.isEmpty() && !height.isEmpty()) {
-        return QString("%1x%2").arg(width).arg(height);
-    } else {
-        qDebug() << "Dimensions not found.";
-        return QString("Dimensions not found.");
-    }
+    return QString("Dimensions not found.");
 }
 
 QString FileManager::getDuration(const QString &fileUrl) {
@@ -665,25 +711,43 @@ QString FileManager::getWritingApplication(const QString &fileUrl) {
 }
 
 QString FileManager::getDocumentType(const QString &fileUrl) {
-    QString output = runMkvInfo(fileUrl);
-    QStringList outputLines = output.split('\n');
-    for (const QString &line : outputLines) {
-        if (line.contains("Document type:")) {
-            QString documentType = line.split(':').last().trimmed();
-            return QString("File Type: %1").arg(documentType);
+    // ffprobe container name (e.g. "mov,mp4,..." or "matroska,webm") so both
+    // .mp4 and .mkv report a type; mkvinfo only understood Matroska.
+    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
+    QProcess probe;
+    probe.start("ffprobe", QStringList()
+                << "-v" << "error"
+                << "-show_entries" << "format=format_name"
+                << "-of" << "default=noprint_wrappers=1:nokey=1"
+                << path);
+    if (probe.waitForFinished(3000)) {
+        QString name = QString::fromUtf8(probe.readAllStandardOutput()).trimmed();
+        // The mp4 demuxer reports a comma-joined family; show the friendly first.
+        name = name.section(',', 0, 0).trimmed();
+        if (!name.isEmpty()) {
+            if (name == "mov")
+                name = "MP4";
+            else if (name == "matroska")
+                name = "MKV";
+            return QString("File Type: %1").arg(name.toUpper());
         }
     }
     return QString("File Type: Not found");
 }
 
 QString FileManager::getCodecId(const QString &fileUrl) {
-    QString output = runMkvInfo(fileUrl);
-    QStringList outputLines = output.split('\n');
-    for (const QString &line : outputLines) {
-        if (line.contains("Codec ID:")) {
-            QString codecId = line.split(':').last().trimmed();
-            return QString("Codec ID: %1").arg(codecId);
-        }
+    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
+    QProcess probe;
+    probe.start("ffprobe", QStringList()
+                << "-v" << "error"
+                << "-select_streams" << "v:0"
+                << "-show_entries" << "stream=codec_name"
+                << "-of" << "default=noprint_wrappers=1:nokey=1"
+                << path);
+    if (probe.waitForFinished(3000)) {
+        const QString codec = QString::fromUtf8(probe.readAllStandardOutput()).trimmed();
+        if (!codec.isEmpty())
+            return QString("Codec ID: %1").arg(codec.toUpper());
     }
     return QString("Codec ID: Not found");
 }
