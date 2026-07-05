@@ -121,6 +121,8 @@ struct PreviewRenderer::Impl {
     EGLDisplay  dpy       = EGL_NO_DISPLAY;
     EGLImageKHR eglImage  = nullptr;
     AImage*     held      = nullptr;
+    int         heldRotation = 0;   // orientation saved with the held frame
+    bool        heldMirror   = false;
     GLuint      program   = 0;
     GLuint      texture   = 0;
     GLint       aPos = -1, aTex = -1, uTex = -1, uRot = -1, uCrop = -1, uMirror = -1;
@@ -255,6 +257,19 @@ void PreviewRenderer::cleanup()
     d_->haveFrame = false;
 }
 
+void PreviewRenderer::dropFrame()
+{
+    // CPU-only: free the AImage.  The EGLImage will be naturally
+    // cleaned up on the next render() when acquireLatestImage
+    // replaces it.  Safe to call from synchronize() (no GL context).
+    if (d_ && d_->held) {
+        AImage_delete(d_->held);
+        d_->held = nullptr;
+    }
+    if (d_)
+        d_->haveFrame = false;
+}
+
 bool PreviewRenderer::render(AImageReader* reader, int viewW, int viewH, int rotationDeg,
                              float cropX, float cropY, bool mirror)
 {
@@ -289,6 +304,11 @@ bool PreviewRenderer::render(AImageReader* reader, int viewW, int viewH, int rot
                     d.glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                     d.glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                     d.haveFrame = true;
+                    // Save orientation with the frame — if the camera switches
+                    // before the next frame arrives, we render this frame with
+                    // its ORIGINAL orientation, avoiding the "flipped image".
+                    d.heldRotation = rotationDeg;
+                    d.heldMirror   = mirror;
                 }
             } else {
                 AImage_delete(img);
@@ -301,7 +321,11 @@ bool PreviewRenderer::render(AImageReader* reader, int viewW, int viewH, int rot
     d.glClear(GL_COLOR_BUFFER_BIT);
 
     if (d.haveFrame && d.eglImage) {
-        const float r = rotationDeg * 3.14159265f / 180.0f;
+        // Render with the orientation that was current when the frame was
+        // acquired — not the orientation that happens to be current now.
+        // If the camera switches while this frame is still held, the new
+        // mirror/rotation never touch old content.
+        const float r = d.heldRotation * 3.14159265f / 180.0f;
         const float c = std::cos(r), s = std::sin(r);
         const float rot[4] = { c, s, -s, c };   // column-major mat2
 
@@ -310,7 +334,7 @@ bool PreviewRenderer::render(AImageReader* reader, int viewW, int viewH, int rot
         if (d.uCrop >= 0)
             d.glUniform2f(d.uCrop, cropX, cropY);
         if (d.uMirror >= 0)
-            d.glUniform1f(d.uMirror, mirror ? -1.0f : 1.0f);
+            d.glUniform1f(d.uMirror, d.heldMirror ? -1.0f : 1.0f);
         d.glActiveTexture(GL_TEXTURE0);
         d.glBindTexture(GL_TEXTURE_EXTERNAL_OES, d.texture);
         d.glUniform1i(d.uTex, 0);

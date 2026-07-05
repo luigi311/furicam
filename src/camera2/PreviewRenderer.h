@@ -36,6 +36,11 @@ public:
     bool render(AImageReader* reader, int viewW, int viewH, int rotationDeg,
                 float cropX = 1.0f, float cropY = 1.0f, bool mirror = false);
 
+    // Discard the held AImage so the next render shows only the clear color
+    // instead of a stale frame.  Called when the reader pointer changes (camera
+    // switch) so the old camera's last image never renders with the new mirror.
+    void dropFrame();
+
     // Release GL + EGLImage resources.  Must be called with the GL context current.
     void cleanup();
 

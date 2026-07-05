@@ -154,7 +154,8 @@ public:
     // Start the camera session.  Opens the back camera by default and begins
     // streaming preview frames.  Emits readyChanged(true) once preview is
     // delivering frames.
-    Q_INVOKABLE void startCamera();
+    Q_INVOKABLE void startCamera()      { startCamera(-1); }   // QML binding (default param doesn't cross the QML boundary reliably)
+    void startCamera(int newFacing);
 
     // Tear down the current camera session.  Safe to call repeatedly.
     Q_INVOKABLE void stopCamera();

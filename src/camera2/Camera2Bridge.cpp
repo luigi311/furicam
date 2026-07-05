@@ -119,8 +119,15 @@ QQuickFramebufferObject::Renderer* Camera2Bridge::createRenderer() const
     return new Camera2PreviewRenderer();
 }
 
-void Camera2Bridge::startCamera()
+void Camera2Bridge::startCamera(int newFacing)
 {
+    // Camera-selection facing: use the deferred flip from switchCamera() if
+    // present, otherwise stick with the current lensFacingPref_.  MUST be a
+    // local — lensFacingPref_ feeds previewMirrored() and if we update it
+    // before the new previewReader_ is live, any render() in between draws
+    // the old camera's held frame with the new mirror (the "flipped image"
+    // glitch).  The real store happens after the reader is ready.
+    const int wantFacing = (newFacing >= 0) ? newFacing : lensFacingPref_.load();
     if (!session_)
         session_ = std::make_unique<CameraSession>([](const std::string& s) {
             std::fprintf(stderr, "[camera] %s\n", s.c_str());
@@ -149,28 +156,28 @@ void Camera2Bridge::startCamera()
 
     std::string chosen;
     int chosenOrientation;
+    int chosenFacing = -1;
     const int idx = selectedCameraIndex_.load();
     if (idx >= 0 && idx < (int)cams.size()) {
         // Explicit camera pick (e.g. the secondary back/macro camera).
         chosen = cams[idx].id;
         chosenOrientation = cams[idx].sensorOrientation;
-        lensFacingPref_.store(cams[idx].facing);   // keep facing in sync for mirroring
+        chosenFacing = cams[idx].facing;
     } else {
         // First camera with the wanted facing (camera 0 = main back, not the
         // secondary macro camera that also reports back-facing).
         chosen = cams.front().id;
         chosenOrientation = cams.front().sensorOrientation;
-        const int want = lensFacingPref_.load();
         bool chosenSet = false;
         for (const auto& c : cams) {
-            if (c.facing == want && !chosenSet) {
+            if (c.facing == wantFacing && !chosenSet) {
                 chosen = c.id;
                 chosenOrientation = c.sensorOrientation;
+                chosenFacing = c.facing;
                 chosenSet = true;
             }
         }
     }
-    sensorOrientation_.store(chosenOrientation);
     currentCameraId_ = chosen;
     emit cameraIdChanged();
 
@@ -230,13 +237,21 @@ void Camera2Bridge::startCamera()
     }
 
     previewReader_ = session_->previewReader();
+    // Apply any deferred orientation state now that the new reader is live —
+    // all three (sensorOrientation_, lensFacingPref_, previewReader_) feed the
+    // renderer and must change atomically so the old camera's held frame never
+    // renders with the new camera's rotation or mirror.
+    sensorOrientation_.store(chosenOrientation);
+    if (chosenFacing >= 0)
+        lensFacingPref_.store(chosenFacing);
+    // Must run after sensorOrientation_ is updated.
+    updateDisplayRotation();
     // Decode QR/barcodes from the analysis (YUV luma) stream — photo mode only.
     session_->setAnalysisCallback([this](const uint8_t* y, int w, int h, int stride) {
         qrDecode(y, w, h, stride);
     });
     if (hasFrontCamera_.exchange(haveFront) != haveFront)
         emit hasFrontCameraChanged();
-    updateDisplayRotation();   // also recomputes previewAspectRatio_ from the stream size
     // Claim the accelerometer so orientation stays live; we read it on-demand
     // at capture time to tag photos/videos with the device tilt.  The preview
     // stays portrait-locked — updateDisplayRotation ignores device rotation.
@@ -269,12 +284,16 @@ void Camera2Bridge::switchCamera()
 {
     // Gesture flip reverts to facing-based pick (the main camera of each side).
     selectedCameraIndex_.store(-1);
-    lensFacingPref_.store(lensFacingPref_.load() == ACAMERA_LENS_FACING_BACK
+    // Compute the new facing but DON'T apply it yet — the renderer still shows
+    // an old frame during the close→open gap, and an eager flip would show it
+    // with the wrong mirror flag (the brief "flipped image" glitch).  Defer to
+    // startCamera(), which applies it atomically with the new sensor orientation
+    // and preview reader.
+    const int newFacing = lensFacingPref_.load() == ACAMERA_LENS_FACING_BACK
                               ? ACAMERA_LENS_FACING_FRONT
-                              : ACAMERA_LENS_FACING_BACK);
-    // ponytail: per-camera resolution memory — no need to reset.
+                              : ACAMERA_LENS_FACING_BACK;
     stopCameraSession();
-    startCamera();
+    startCamera(newFacing);
 }
 
 QVariantList Camera2Bridge::availableCameras()

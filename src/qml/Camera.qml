@@ -480,10 +480,8 @@ Item {
 
                     var currentTime = new Date().getTime();
                     if (currentTime - lastTapTime < doubleTapInterval) {
-                        window.blurView = 1;
                         settings.cameraPosition = settings.cameraPosition === window.backFace ? window.frontFace : window.backFace;
                         settings.flashMode = settings.cameraPosition === window.frontFace ? window.flashOff : settings.flashMode;
-                        cameraSwitchDelay.start();
                         lastTapTime = 0;
                     } else {
                         lastTapTime = currentTime;
@@ -496,11 +494,9 @@ Item {
                                     // then flips the camera.
                                     configBarDrawer.close()
                                 } else { // Flip camera
-                                    window.blurView = 1;
                                     settings.flashMode = window.flashOff
                                     settings.cameraPosition = settings.cameraPosition === window.backFace ? window.frontFace : window.backFace;
                                     settings.flashMode = settings.cameraPosition === window.frontFace ? window.flashOff : settings.flashMode;
-                                    cameraSwitchDelay.start();
                                 }
                             }
                         } else if (Math.abs(deltaX) > swipeThreshold) {
@@ -645,7 +641,8 @@ Item {
         // Dim overlay during transitions.
         Rectangle {
             anchors.fill: parent
-            opacity: blurView ? 1 : 0
+            z: 100
+            opacity: window.blurView ? 1 : 0
             color: "#40000000"
             visible: opacity != 0
             Behavior on opacity { NumberAnimation { duration: 300 } }
@@ -754,7 +751,7 @@ Item {
     FastBlur {
         id: vBlur
         anchors.fill: parent
-        opacity: blurView ? 1 : 0
+        opacity: window.blurView ? 1 : 0
         source: cam2
         radius: 128
         visible: opacity != 0
@@ -764,7 +761,7 @@ Item {
 
     Glow {
         anchors.fill: vBlur
-        opacity: blurView ? 1 : 0
+        opacity: window.blurView ? 1 : 0
         radius: 4
         samples: 1
         color: "black"
