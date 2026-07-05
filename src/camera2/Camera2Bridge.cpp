@@ -409,8 +409,16 @@ void Camera2Bridge::effectiveCaptureSize(int& cw, int& ch)
 // so ANY still ratio (1:1, 3:2, 16:9 …) maps corner-for-corner with the capture.
 void Camera2Bridge::pickPreviewStreamSize()
 {
-    previewStreamW_ = 1280;
-    previewStreamH_ = 960;   // 4:3 full FOV (fallback to 720 only if this size fails)
+    // Photo mode: 4:3 stream matches the sensor.  Video mode: 16:9 stream
+    // matches the recording clip — no GL crop needed so the full FOV is
+    // visible (the old 4:3 stream cropped to 16:9 wasted ~25 % vertical).
+    if (videoModeDesired_) {
+        previewStreamW_ = 1280;
+        previewStreamH_ = 720;
+    } else {
+        previewStreamW_ = 1280;
+        previewStreamH_ = 960;
+    }
 }
 
 // previewAspectRatio_ = the on-screen (post-rotation) w/h of the *still* aspect;
@@ -632,8 +640,15 @@ void Camera2Bridge::setVideoMode(bool on)
     if (on == videoModeDesired_)
         return;
     videoModeDesired_ = on;
-    applyVideoMode();
-    recomputePreviewAspect();   // letterbox/crop follows the photo vs video aspect
+    // Changing preview stream size requires a session rebuild (4:3 ↔ 16:9).
+    // ~200ms, comparable to the GPU-level crop the old approach used every
+    // frame.  No-op on initial startup — session_ is null so the ready guard
+    // skips the rebuild, and startCamera() picks the correct size directly.
+    if (ready_.load()) {
+        stopCameraSession();
+        startCamera();
+    }
+    recomputePreviewAspect();
     emit videoModeChanged();
 }
 

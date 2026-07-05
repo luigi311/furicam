@@ -414,10 +414,10 @@ Item {
             if (ready) {
                 focusState.state = "Default"
                 cameraItem.fnAspectRatio()
-                cam2.setRawEnabled(settings.rawEnabled)   // restore RAW (DNG) capture
-                cam2.setVideoBitrate(settings.videoBitrate)   // restore chosen bitrate
-                cam2.setVideoResolution(settings.videoResWidth, settings.videoResHeight)   // restore chosen resolution
-                cam2.setVideoStabilization(settings.eisEnabled === 1)   // restore EIS preference
+                cam2.setRawEnabled(settings.rawEnabled)
+                cam2.setVideoBitrate(settings.videoBitrate)
+                cam2.setVideoResolution(settings.videoResWidth, settings.videoResHeight)
+                cam2.setVideoStabilization(settings.eisEnabled === 1)
                 cameraItem.applyVideoMode()   // enter video mode if starting on the video tab
                 // Sync GUI position state to the camera that actually opened (bridge
                 // ground truth) — the flash button and other UI gate on
