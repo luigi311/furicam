@@ -1,3 +1,38 @@
+furicam (1.4.0-1) unstable; urgency=medium
+
+  * Port the whole app to Qt6 (native build):
+    - Qt5 -> Qt6 in build system and Debian deps, custom FindOpenCV to avoid
+      pulling in Qt5, drop the distrobox shlib workaround
+    - QtGraphicalEffects -> Qt5Compat.GraphicalEffects, QtMultimedia/QtSensors
+      API updates, precompiled .qsb shaders for the live colour-correction effect
+  * Gallery: keep the scroll position when deleting a photo in the middle of the
+    roll (no longer jumps to the newest) and stop the brief "0 pictures" flash
+  * Gallery: double-tap a photo to zoom (toward the tapped point) and tap again
+    to fit
+  * Gallery: fix portrait videos playing sideways (the FFmpeg backend already
+    applies the rotation) and hide the still thumbnail once playback starts
+  * Gallery: add a button to open the current photo/video in an external app via
+    the XDG portal, with the "Open With" chooser
+  * Gallery: async video metadata (ffprobe) and disk-cached video thumbnails so
+    paging never stalls the UI; works for .mp4 clips, not just legacy .mkv
+  * Gallery: rework reviewer gestures (reliable swipe up/down, native paging),
+    play overlay on videos, swipe-down to close
+  * Camera: remember the per-camera still resolution across restarts instead of
+    always defaulting to the sensor maximum
+  * Camera: switching to/from video mode is now near-instant — reconfigure the
+    capture session instead of reopening the camera device (was 2-4s)
+  * Camera: blur the preview while switching front/back camera to hide the
+    reopen glitch, lifted once the new camera pushes fresh frames
+  * Camera: fix the preview flip glitch (stale frame shown with the new camera's
+    rotation/mirror) during a camera switch
+  * Camera: faster camera switching (enumerate cameras once, keep the session
+    alive across switches, drop a redundant resolution restart)
+  * Camera: instant return from the gallery (preview is hidden, not torn down),
+    and a viewfinder swipe-up now collapses the menu bar before flipping cameras
+  * HDR: saving the un-fused EV0 backup frame is now an opt-in setting
+
+ -- nico359 <124350776+nico359@users.noreply.github.com>  Sat, 11 Jul 2026 18:17:47 +0200
+
 furicam (1.3.3-1) unstable; urgency=medium
 
   * Jpeg reencoding has been stripped and quality labels are more vague because HAL does not make percentages available to my knowsledge
