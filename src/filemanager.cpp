@@ -23,6 +23,13 @@
 #include <exiv2/exiv2.hpp>
 #include <cmath>
 #include <QImage>
+#include <QDesktopServices>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusUnixFileDescriptor>
+#include <QDBusPendingCall>
+#include <fcntl.h>
+#include <unistd.h>
 
 
 FileManager::FileManager(QObject *parent) : QObject(parent), m_geoClueInstance(nullptr), m_locationAvailable(new int(0)) {
@@ -91,6 +98,35 @@ bool FileManager::deleteImage(const QString &fileUrl) {
     QFile file(path);
 
     return file.exists() && file.remove();
+}
+
+void FileManager::openInExternalApp(const QString &fileUrl) {
+    const QUrl url(fileUrl);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : fileUrl;
+
+    // Ask the XDG portal to open the file, forcing the "Open With" chooser
+    // (ask=true) so the user picks the app — matching GNOME Snapshot.
+    const int fd = ::open(path.toLocal8Bit().constData(), O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+        QDBusMessage msg = QDBusMessage::createMethodCall(
+            QStringLiteral("org.freedesktop.portal.Desktop"),
+            QStringLiteral("/org/freedesktop/portal/desktop"),
+            QStringLiteral("org.freedesktop.portal.OpenURI"),
+            QStringLiteral("OpenFile"));
+        QVariantMap options;
+        options.insert(QStringLiteral("ask"), true);
+        msg << QString()                                        // parent_window
+            << QVariant::fromValue(QDBusUnixFileDescriptor(fd)) // fd (portal dups it)
+            << options;
+        const QDBusMessage reply = QDBusConnection::sessionBus().call(msg);
+        ::close(fd);
+        if (reply.type() != QDBusMessage::ErrorMessage)
+            return;
+        qWarning() << "OpenURI portal failed, falling back:" << reply.errorMessage();
+    }
+
+    // Portal unavailable — hand off to the default handler (xdg-open).
+    QDesktopServices::openUrl(url.isLocalFile() ? url : QUrl::fromLocalFile(path));
 }
 
 QStringList FileManager::decimalToDMS(double decimal, bool isLongitude) { // This is based on the exiv2 tag lists

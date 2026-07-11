@@ -29,6 +29,10 @@ public:
     Q_INVOKABLE QString getConfigFile();
     Q_INVOKABLE bool deleteImage(const QString &fileUrl);
     Q_INVOKABLE QString getFileSize(const QString &fileUrl);
+    // Open a photo/video in an external app.  Uses the XDG OpenURI portal with
+    // ask=true so the user gets the "Open With" chooser (like GNOME Snapshot),
+    // falling back to the default handler if the portal isn't available.
+    Q_INVOKABLE void openInExternalApp(const QString &fileUrl);
 // ***************** Picture Metada *****************
     Q_INVOKABLE easyexif::EXIFInfo getPictureMetaData(const QString &fileUrl);
     Q_INVOKABLE QString getPictureDate(const QString &fileUrl);

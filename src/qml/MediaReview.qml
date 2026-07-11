@@ -907,6 +907,28 @@ Rectangle {
                 }
 
                 Button {
+                    id: btnOpenExternal
+                    anchors.right: btnDelete.left
+                    anchors.rightMargin: 20 * viewRect.scalingRatio
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon.source: "icons/openExternalSymbolic.svg"
+                    icon.width: parent.width * 0.1
+                    icon.height: parent.width * 0.1
+                    icon.color: "white"
+                    enabled: deletePopUp === "closed" && viewRect.visible
+                    visible: viewRect.index >= 0 && !viewRect.hideMediaInfo
+
+                    background: Rectangle {
+                        anchors.fill: parent
+                        color: "transparent"
+                    }
+
+                    // Open via the XDG portal with the "Open With" app chooser
+                    // (like GNOME Snapshot), not the silent default handler.
+                    onClicked: fileManager.openInExternalApp(viewRect.currentFileUrl)
+                }
+
+                Button {
                     id: btnDelete
                     anchors.right: parent.right
                     anchors.rightMargin: 20 * viewRect.scalingRatio
