@@ -53,6 +53,9 @@ ApplicationWindow {
     property var countDown: 0
     property bool firstLoad: true
     property var blurView: optionContainer.state == "closed" ? 0 : 1
+    // When true the blur snaps on with no fade-in — used for the camera flip,
+    // whose blocking reopen would otherwise freeze the fade half-way through.
+    property bool blurInstant: false
     property var frontCameras: 0
     property var backCameras: 0
     property var swipeDirection: 0 // 0 = swiped left, 1 = swiped right, 2 = clicked
@@ -410,16 +413,6 @@ ApplicationWindow {
                 cslate.state = next_state === "Empty" ? cslate.state : swappingDelay.next_state;
             }
             window.blurView = 0
-        }
-    }
-
-    Timer {
-        id: cameraSwitchDelay
-        interval: 100
-        repeat: false
-
-        onTriggered: {
-            window.blurView = 0;
         }
     }
 

@@ -26,6 +26,10 @@ Item {
     height: 800
 
     property int lockedVideoRotation: 0
+    // Frame count when a camera-switch became ready; the blur is held until a few
+    // frames past this so it lifts on a live NEW-camera frame, not the stale held
+    // frame of the old camera.  -1 = no switch blur pending.
+    property int switchBlurBaseCount: -1
 
     property alias resolutionModel: resModel
     property int currentResWidth: 0
@@ -224,7 +228,12 @@ Item {
         // below doesn't trigger applyCameraPosition() into a redundant switch.
         frontActive = (facing === 0)
         settings.cameraPosition = (facing === 0) ? window.frontFace : window.backFace
-        cam2.selectCamera(deviceIdToSet)
+        window.blurInstant = true   // snap on, no fade; cleared on first fresh frame
+        window.blurView = 1         // hide the reopen glitch
+        switchBlurSafety.restart()
+        // Defer the blocking reopen a tick so the blur paints first (see timer).
+        cameraFlipTimer.deviceId = deviceIdToSet
+        cameraFlipTimer.start()
     }
 
     function handleSetZoom(zoomLevel) {
@@ -253,11 +262,51 @@ Item {
         }
     }
 
+    // Deferred half of the camera switch: the actual (blocking) reopen. Split out
+    // so the blur can paint one event-loop tick BEFORE switchCamera()/selectCamera()
+    // freezes the UI thread — otherwise the blur is set and cleared (onReadyChanged)
+    // within the same blocked call and never renders.  deviceId >= 0 picks a specific
+    // camera (the selector); -1 is the gesture/button flip.
+    Timer {
+        id: cameraFlipTimer
+        interval: 50
+        property bool wantFront: false
+        property int deviceId: -1
+        onTriggered: {
+            if (deviceId >= 0) {
+                cam2.selectCamera(deviceId)
+            } else {
+                cam2.switchCamera()
+                cameraItem.frontActive = wantFront
+            }
+        }
+    }
+
+    // Safety net: if the new camera never pushes the frames that would lift the
+    // switch blur (onFrameCountChanged), force it off so we can't get stuck on a
+    // frozen blurred screen.
+    Timer {
+        id: switchBlurSafety
+        interval: 1500
+        onTriggered: {
+            cameraItem.switchBlurBaseCount = -1
+            if (optionContainer.state === "closed")
+                window.blurView = 0
+            window.blurInstant = false
+        }
+    }
+
     function applyCameraPosition() {
         var wantFront = (settings.cameraPosition === window.frontFace)
         if (wantFront !== frontActive) {
-            cam2.switchCamera()
-            frontActive = wantFront
+            // Snap the blur fully on (no fade — the reopen would freeze it mid-fade)
+            // to hide the last-frame glitch; cleared in onReadyChanged.
+            window.blurInstant = true
+            window.blurView = 1
+            switchBlurSafety.restart()
+            cameraFlipTimer.deviceId = -1
+            cameraFlipTimer.wantFront = wantFront
+            cameraFlipTimer.start()
         }
     }
 
@@ -435,6 +484,11 @@ Item {
                 // with the switch that triggered this signal.
                 frontActive = (cam2.currentFacing() === 0)   // 0=front
                 settings.cameraPosition = frontActive ? window.frontFace : window.backFace
+                // Device is ready but the preview may still hold the OLD camera's
+                // last frame; keep the blur up and lift it on the first fresh frame
+                // (onFrameCountChanged) so it never uncovers a stale frame.
+                if (window.blurInstant)
+                    cameraItem.switchBlurBaseCount = cam2.frameCount
             }
         }
         // Keep the bitrate slider in sync when resolution changes bump the floor.
@@ -760,13 +814,15 @@ Item {
 
     FastBlur {
         id: vBlur
-        anchors.fill: parent
+        // Cover just the preview viewport (like frozenFrame), not the whole window —
+        // anchoring to parent stretched the preview across the letterbox/control area.
+        anchors.fill: cam2
         opacity: window.blurView ? 1 : 0
         source: cam2
         radius: 128
         visible: opacity != 0
         transparentBorder: false
-        Behavior on opacity { NumberAnimation { duration: 300 } }
+        Behavior on opacity { enabled: !window.blurInstant; NumberAnimation { duration: 300 } }
     }
 
     Glow {
@@ -777,7 +833,7 @@ Item {
         color: "black"
         source: vBlur
         visible: opacity != 0
-        Behavior on opacity { NumberAnimation { duration: 300 } }
+        Behavior on opacity { enabled: !window.blurInstant; NumberAnimation { duration: 300 } }
     }
 
     // Frozen preview frame — holds ~what the user shot during the still-capture
@@ -807,6 +863,18 @@ Item {
             if (frozenFrame.opacity > 0 && cam2.frameCount - frozenFrame.baseCount >= 3) {
                 frozenFrame.opacity = 0
                 frozenHideTimer.stop()
+            }
+            // Lift the camera-switch blur once the NEW camera has pushed a couple of
+            // fresh frames (so it never uncovers the old camera's held frame).  Snap
+            // it off (blurInstant still set → no fade) to match the instant snap-on,
+            // then re-enable the fade for other blur users (the menu).
+            if (cameraItem.switchBlurBaseCount >= 0
+                && cam2.frameCount - cameraItem.switchBlurBaseCount >= 2) {
+                cameraItem.switchBlurBaseCount = -1
+                switchBlurSafety.stop()
+                if (optionContainer.state === "closed")
+                    window.blurView = 0
+                window.blurInstant = false
             }
         }
     }
