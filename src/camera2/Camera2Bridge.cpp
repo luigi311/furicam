@@ -423,16 +423,13 @@ void Camera2Bridge::effectiveCaptureSize(int& cw, int& ch)
 // so ANY still ratio (1:1, 3:2, 16:9 …) maps corner-for-corner with the capture.
 void Camera2Bridge::pickPreviewStreamSize()
 {
-    // Photo mode: 4:3 stream matches the sensor.  Video mode: 16:9 stream
-    // matches the recording clip — no GL crop needed so the full FOV is
-    // visible (the old 4:3 stream cropped to 16:9 wasted ~25 % vertical).
-    if (videoModeDesired_) {
-        previewStreamW_ = 1280;
-        previewStreamH_ = 720;
-    } else {
-        previewStreamW_ = 1280;
-        previewStreamH_ = 960;
-    }
+    // Always a 4:3 stream matching the full sensor FOV; recomputePreviewAspect()
+    // crops it to whatever aspect the current mode needs (4:3 still / 16:9 video).
+    // Keeping the reader size constant lets video-mode toggles reconfigure just
+    // the capture session (add/remove the encoder) instead of reopening the
+    // camera device — the difference between a ~200ms switch and a 2-4s one.
+    previewStreamW_ = 1280;
+    previewStreamH_ = 960;
 }
 
 // previewAspectRatio_ = the on-screen (post-rotation) w/h of the *still* aspect;
@@ -654,14 +651,13 @@ void Camera2Bridge::setVideoMode(bool on)
     if (on == videoModeDesired_)
         return;
     videoModeDesired_ = on;
-    // Changing preview stream size requires a session rebuild (4:3 ↔ 16:9).
-    // ~200ms, comparable to the GPU-level crop the old approach used every
-    // frame.  No-op on initial startup — session_ is null so the ready guard
-    // skips the rebuild, and startCamera() picks the correct size directly.
-    if (ready_.load()) {
-        stopCameraSession();
-        startCamera();
-    }
+    // Reconfigure just the capture session (add/remove the encoder surface) via
+    // enter/exitVideoMode — the camera device and preview reader stay open, so
+    // this is a ~200ms switch instead of a 2-4s device reopen.  The preview reader
+    // is a constant 4:3 and recomputePreviewAspect() crops it to 16:9 for video.
+    // No-op on initial startup (session_ null); startCamera() applies the mode.
+    if (ready_.load())
+        applyVideoMode();
     recomputePreviewAspect();
     emit videoModeChanged();
 }
