@@ -408,7 +408,17 @@ Item {
         // (entering video mode, starting a recording) via applyVideoMode() /
         // handleVideoRecording() — reactive split bindings churned and could
         // produce a mismatched (e.g. 1920x2160) size.
-        Component.onCompleted: cam2.startCamera()
+        Component.onCompleted: {
+            // Seed the persisted per-camera still size BEFORE the first session is
+            // built, so startup restores e.g. 12MP instead of defaulting to the
+            // sensor max.  Keyed by camera index; the engine applies the one it opens.
+            for (var i = 0; i < settings.cameras.length; i++) {
+                var c = settings.cameras[i]
+                if (c && c.resWidth > 0 && c.resHeight > 0)
+                    cam2.setSavedResolution(i, c.resWidth, c.resHeight)
+            }
+            cam2.startCamera()
+        }
 
         onReadyChanged: {
             if (ready) {

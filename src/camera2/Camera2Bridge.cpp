@@ -157,23 +157,27 @@ void Camera2Bridge::startCamera(int newFacing)
     std::string chosen;
     int chosenOrientation;
     int chosenFacing = -1;
+    int chosenIndex = 0;
     const int idx = selectedCameraIndex_.load();
     if (idx >= 0 && idx < (int)cams.size()) {
         // Explicit camera pick (e.g. the secondary back/macro camera).
         chosen = cams[idx].id;
         chosenOrientation = cams[idx].sensorOrientation;
         chosenFacing = cams[idx].facing;
+        chosenIndex = idx;
     } else {
         // First camera with the wanted facing (camera 0 = main back, not the
         // secondary macro camera that also reports back-facing).
         chosen = cams.front().id;
         chosenOrientation = cams.front().sensorOrientation;
         bool chosenSet = false;
-        for (const auto& c : cams) {
+        for (int i = 0; i < (int)cams.size(); ++i) {
+            const auto& c = cams[i];
             if (c.facing == wantFacing && !chosenSet) {
                 chosen = c.id;
                 chosenOrientation = c.sensorOrientation;
                 chosenFacing = c.facing;
+                chosenIndex = i;
                 chosenSet = true;
             }
         }
@@ -222,8 +226,18 @@ void Camera2Bridge::startCamera(int newFacing)
     // inside startPreview() to the sensor's actual max.  No saved choice
     // means 0 → maxJpegSize() picks the per-sensor max.
     auto it = cameraResolutions_.find(chosen);
-    if (it != cameraResolutions_.end() && it->second.first > 0)
+    if (it != cameraResolutions_.end() && it->second.first > 0) {
         session_->setJpegSize(it->second.first, it->second.second);
+    } else {
+        // No in-session choice yet: fall back to the size persisted across app
+        // restarts (seeded by QML via setSavedResolution before startCamera).
+        auto sv = savedResolutions_.find(chosenIndex);
+        if (sv != savedResolutions_.end() && sv->second.first > 0) {
+            session_->setJpegSize(sv->second.first, sv->second.second);
+            // Promote into the live map so effectiveCaptureSize()/preview crop match.
+            cameraResolutions_[chosen] = sv->second;
+        }
+    }
     pickPreviewStreamSize();   // match the preview aspect to the chosen still aspect
     if (!session_->startPreview(previewStreamW_, previewStreamH_, AIMAGE_FORMAT_PRIVATE,
                                 AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, 30)) {
@@ -1023,6 +1037,12 @@ void Camera2Bridge::setResolution(int width, int height)
         stopCamera();
         startCamera();
     }
+}
+
+void Camera2Bridge::setSavedResolution(int cameraIndex, int width, int height)
+{
+    if (width > 0 && height > 0)
+        savedResolutions_[cameraIndex] = {width, height};
 }
 
 void Camera2Bridge::setJpegQuality(int quality)

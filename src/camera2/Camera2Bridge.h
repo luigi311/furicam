@@ -254,6 +254,10 @@ public:
     // the camera to recreate the still output at that size.
     Q_INVOKABLE QVariantList availableResolutions();
     Q_INVOKABLE void setResolution(int width, int height);
+    // Seed the persisted still size for a camera (by index) before startCamera(),
+    // so the very first session is built at the saved size instead of the sensor
+    // max.  Unlike setResolution() this never restarts the camera.
+    Q_INVOKABLE void setSavedResolution(int cameraIndex, int width, int height);
     Q_INVOKABLE void setJpegQuality(int quality);   // 1..100; HAL encodes at this directly
 
     // RAW/DNG capture — toggle DNG alongside JPEG.  When on, each shot saves a
@@ -346,6 +350,8 @@ private:
     // sensor sizes (20 MP main, 13 MP selfie, 1.6 MP macro), so remembering
     // the user's choice by camera id avoids cross-camera over-size failures.
     std::unordered_map<std::string, std::pair<int,int>> cameraResolutions_;
+    // Persisted still sizes seeded from QML by camera index (see setSavedResolution).
+    std::unordered_map<int, std::pair<int,int>> savedResolutions_;
     std::string           currentCameraId_;             // camera id open right now
     int                  previewStreamW_     = 1280;     // preview stream size; its aspect
     int                  previewStreamH_     = 720;      // follows the still aspect (WYSIWYG)
