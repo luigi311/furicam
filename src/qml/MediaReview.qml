@@ -43,9 +43,6 @@ Rectangle {
     // Loader so swiping between videos only ever shows thumbnails (no player
     // create/destroy churn mid-swipe).  Reset whenever the current item changes.
     property bool videoPlaying: false
-    // Display rotation (deg) for the current video; the muxer stores it as a hint
-    // the QML VideoOutput doesn't auto-apply on this backend.
-    property int videoRotation: 0
     property var videoAudio: false
     // Date shown in the header.  For videos this comes from a blocking ffprobe,
     // so it's computed on a short debounce (dateProbeTimer) once the pager
@@ -485,6 +482,9 @@ Rectangle {
                     asynchronous: true
                     cache: true
                     source: page.thumbUrl
+                    // Hide once the player is up, otherwise the (correctly
+                    // oriented) still shows through the video's letterbox bars.
+                    visible: !(page.isCurrent && viewRect.videoPlaying)
                 }
 
                 // Gesture area for video pages — mirrors the photo one (axis
@@ -551,7 +551,6 @@ Rectangle {
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
-                            viewRect.videoRotation = fileManager.getVideoRotation(page.pageUrl)
                             viewRect.videoPlaying = true
                             viewRect.mediaState = MediaPlayer.PlayingState
                         }
@@ -723,7 +722,11 @@ Rectangle {
             VideoOutput {
                 id: videoOutput
                 anchors.fill: parent
-                orientation: viewRect.videoRotation
+                // The Qt FFmpeg backend already applies the clip's display-matrix
+                // rotation, so portrait videos arrive upright — do NOT rotate here
+                // (the old orientation/rotation was double-applying and playing them
+                // sideways).  Just fit the already-correct frame to the view.
+                fillMode: VideoOutput.PreserveAspectFit
                 visible: viewRect.currentFileUrl && viewRect.isVideoFile(viewRect.currentFileUrl)
             }
 
