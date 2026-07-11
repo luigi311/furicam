@@ -24,6 +24,7 @@ Licensed under GPL-2.0.
 - Added different video resolutions to choose
 - Added post processing options (RGB channels and saturation) - red was slightly reduced by default due to the FLX1s but does not seem to be an issue anymore
 - Switching between photo and video mode also switches aspect ratio now
+- Major improvements to the built-in gallery: Double tap to zoom, smooth swiping between pictures, etc.
 
 # To be improved
 
@@ -35,7 +36,7 @@ Licensed under GPL-2.0.
 
 ## Building
 
-Builds natively on the FuriPhone (Debian Forky arm64) — no distrobox needed.
+Builds natively on the FuriPhone (Debian Forky arm64) - no distrobox needed.
 
 ### Build dependencies
 
@@ -61,6 +62,30 @@ sudo apt install cmake \
                  libopencv-imgproc-dev \
                  libopencv-photo-dev
 ```
+
+> **Note — Qt6 dev packages vs. the GLES Qt on FuriOS**
+>
+> On current FuriOS the GUI stack is the GLES Qt build (`libqt6gui6-gles`), which
+> only `Provides: libqt6gui6 (= …dfsg-12)` and `Conflicts:` the plain
+> `libqt6gui6`. But `qt6-base-dev` hard-depends on the exact matching
+> `libqt6gui6 (= …dfsg-15)`, so a normal `apt install qt6-base-dev …` refuses.
+>
+> Work around it by downloading the dev packages and force-installing them (the
+> real GLES libs serve at runtime — only the headers/CMake files are needed):
+>
+> ```
+> mkdir -p /tmp/qt6debs && cd /tmp/qt6debs
+> apt-get download qt6-base-dev qt6-declarative-dev qt6-multimedia-dev
+> sudo dpkg -i --force-depends /tmp/qt6debs/*.deb
+> ```
+>
+> This leaves apt with one "unmet dependency" for `qt6-base-dev` — harmless for
+> building, but every later `apt` command will complain. To restore a clean apt
+> state (e.g. before testing a package upgrade), remove them again:
+>
+> ```
+> sudo dpkg --remove --force-depends qt6-base-dev qt6-declarative-dev qt6-multimedia-dev
+> ```
 
 ### Build
 
@@ -99,11 +124,18 @@ sudo apt install qml6-module-qtmultimedia \
 
 ### Building the .deb
 
+With the Qt6 dev headers force-installed as above:
+
 ```
 dpkg-buildpackage -d -us -uc -b
 ```
 
-The `-d` flag skips build-dependency checks (still needed for `libhybris-common.so.1` which is present at runtime but lacks a proper dev package).
+The `-d` flag skips build-dependency checks — required here both because
+`qt6-base-dev`'s `libqt6gui6` dependency is unsatisfiable against the GLES Qt
+(see the note above) and because `libhybris-common.so.1` is present at runtime
+but lacks a proper dev package. `dpkg-shlibdeps` still resolves the runtime
+`Depends` correctly (it picks `libqt6gui6-gles`), so the resulting `.deb`
+installs and upgrades cleanly via apt.
 
 # AI Disclosure 
 
