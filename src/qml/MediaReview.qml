@@ -25,6 +25,9 @@ Rectangle {
                          StandardPaths.writableLocation(StandardPaths.PicturesLocation) + "/furicam"
     // Internal toggle used by refresh() to force FolderListModel rescan.
     property bool _refreshClearing: false
+    // Index to restore after a refresh (e.g. delete keeps your scroll position).
+    // -1 means "no preference" → land on the newest item (a fresh capture).
+    property int pendingIndex: -1
     property var deletePopUp: "closed"
     property bool hideMediaInfo: false
     property bool showShapes: true
@@ -142,13 +145,27 @@ Rectangle {
         sortReversed: true
 
         onStatusChanged: {
-            if (imgModel.status == FolderListModel.Ready) {
+            if (imgModel.status !== FolderListModel.Ready)
+                return
+            // Ignore the transient empty state during refresh()'s folder="" clear;
+            // wait for the real rescan so pendingIndex isn't consumed early.
+            if (viewRect._refreshClearing)
+                return
+
+            if (imgModel.count === 0) {
+                viewRect.index = -1
+            } else if (viewRect.pendingIndex >= 0) {
+                // Delete/reload: stay at (clamped) position, don't jump to newest.
+                viewRect.index = Math.min(viewRect.pendingIndex, imgModel.count - 1)
+            } else {
                 viewRect.index = imgModel.count - 1
-                if (cslate.state == "VideoCapture" && viewRect.isVideoFile(viewRect.currentFileUrl)) {
-                    thumbnailGenerator.setVideoSource(viewRect.currentFileUrl)
-                } else {
-                    viewRect.lastImg = viewRect.currentFileUrl
-                }
+            }
+            viewRect.pendingIndex = -1
+
+            if (cslate.state == "VideoCapture" && viewRect.isVideoFile(viewRect.currentFileUrl)) {
+                thumbnailGenerator.setVideoSource(viewRect.currentFileUrl)
+            } else {
+                viewRect.lastImg = viewRect.currentFileUrl
             }
         }
     }
@@ -156,7 +173,7 @@ Rectangle {
     // Empty-folder placeholder (SwipeView below is empty when there's no media).
     Loader {
         anchors.fill: parent
-        active: viewRect.visible && imgModel.count === 0
+        active: viewRect.visible && imgModel.count === 0 && !viewRect._refreshClearing
         visible: active
         sourceComponent: emptyDirectoryComponent
     }
@@ -889,7 +906,10 @@ Rectangle {
                                 height: confirmationPopup.height * 0.6
                                 onClicked: {
                                     var tempCurrUrl = viewRect.currentFileUrl
-                                    viewRect.index = Math.max(0, viewRect.index - 1)
+                                    // Keep the scroll position: after the rescan land on
+                                    // whatever now occupies this slot (clamped), instead
+                                    // of snapping back to the newest item.
+                                    viewRect.pendingIndex = viewRect.index
                                     fileManager.deleteImage(tempCurrUrl)
                                     viewRect.refresh()
                                     deletePopUp = "closed"
