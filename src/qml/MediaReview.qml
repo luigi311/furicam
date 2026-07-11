@@ -250,6 +250,30 @@ Rectangle {
             }
             Component.onCompleted: if (isVideo && nearCurrent) requestThumb()
             onNearCurrentChanged: if (isVideo && nearCurrent) requestThumb()
+
+            // Double-tap zoom: toggle between fit (1x) and 2.5x, zooming toward
+            // the tapped point (clamped so the photo can't pan off-screen).
+            function toggleZoom(px, py) {
+                image.zoomAnimating = true
+                if (image.scale > 1.01) {
+                    image.scale = 1.0
+                    image.panX = 0
+                    image.panY = 0
+                    viewRect.zoomed = false
+                } else {
+                    var s = 2.5
+                    image.scale = s
+                    image.panX = image.clampPanX(-(px - page.width / 2) * (s - 1))
+                    image.panY = image.clampPanY(-(py - page.height / 2) * (s - 1))
+                    viewRect.zoomed = true
+                }
+                zoomAnimResetTimer.restart()
+            }
+            Timer {
+                id: zoomAnimResetTimer
+                interval: 220
+                onTriggered: image.zoomAnimating = false
+            }
             Connections {
                 target: thumbnailGenerator
                 function onThumbnailReady(videoUrl, thumbUrl) {
@@ -294,6 +318,22 @@ Rectangle {
                     property real panY: 0
                     x: image.panX
                     y: parent.height / 2 - height / 2 + image.panY
+
+                    // Only animate scale/pan during a double-tap zoom; during a
+                    // drag-pan the offsets must follow the finger with no lag.
+                    property bool zoomAnimating: false
+                    Behavior on scale {
+                        enabled: image.zoomAnimating
+                        NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+                    }
+                    Behavior on panX {
+                        enabled: image.zoomAnimating
+                        NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+                    }
+                    Behavior on panY {
+                        enabled: image.zoomAnimating
+                        NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+                    }
 
                     function clampPanX(v) {
                         var m = Math.max(0, (paintedWidth * scale - page.width) / 2)
@@ -354,6 +394,15 @@ Rectangle {
                         property string axis: ""      // "", "v" or "h"
                         property int decideThreshold: 8
                         property int swipeThreshold: 30
+                        // Double-tap detection: a second tap within this window
+                        // toggles zoom; otherwise the single tap fires (deferred).
+                        property real lastTapTime: 0
+
+                        Timer {
+                            id: singleTapTimer
+                            interval: 260
+                            onTriggered: viewRect.hideMediaInfo = !viewRect.hideMediaInfo
+                        }
 
                         onPressed: function(mouse) {
                             startX = mouse.x
@@ -402,7 +451,22 @@ Rectangle {
                                 return
                             var deltaX = mouse.x - startX
                             var deltaY = mouse.y - startY
-                            swipeGesture(deltaX, deltaY, swipeThreshold)
+                            var isTap = Math.abs(deltaX) < swipeThreshold && Math.abs(deltaY) < swipeThreshold
+                            if (!isTap) {
+                                swipeGesture(deltaX, deltaY, swipeThreshold)
+                                return
+                            }
+                            // Tap: a quick second tap is a double-tap (zoom);
+                            // otherwise defer the single-tap action briefly.
+                            var now = Date.now()
+                            if (now - lastTapTime < 260) {
+                                singleTapTimer.stop()
+                                lastTapTime = 0
+                                page.toggleZoom(mouse.x, mouse.y)
+                            } else {
+                                lastTapTime = now
+                                singleTapTimer.restart()
+                            }
                         }
                     }
                 }
