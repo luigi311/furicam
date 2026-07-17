@@ -28,6 +28,7 @@ ApplicationWindow {
     readonly property int flashOff: 0
     readonly property int flashOn: 1
     readonly property int flashAuto: 2
+    readonly property int flashTorch: 3
     readonly property int focusContinuous: 0x10
     readonly property int focusAuto: 0x08
     readonly property int focusPointCenter: 1
@@ -70,6 +71,7 @@ ApplicationWindow {
     property var focusPointVisible: false
     property var aeflock: "AEFLockOff"
     property var currentVideoRotation: 0
+    property bool videoTorchOn: false   // torch toggle for video mode
 
     property var gps_icon_source: settings.gpsOn ? "icons/gpsOn.svg" : "icons/gpsOff.svg"
     property var locationAvailable: 0
@@ -410,7 +412,14 @@ ApplicationWindow {
         onTriggered: {
             if (window.swipeDirection != 2){
                 swappingDelay.next_state = (swipeDirection == 0) ? window.next_state_left : window.next_state_right;
-                cslate.state = next_state === "Empty" ? cslate.state : swappingDelay.next_state;
+                var newState = next_state === "Empty" ? cslate.state : swappingDelay.next_state;
+                // Turn off video torch when exiting video mode via swipe
+                if (newState === "PhotoCapture" && window.videoTorchOn) {
+                    window.videoTorchOn = false
+                    if (cameraLoader.item)
+                        cameraLoader.item.handleSetTorch(false)
+                }
+                cslate.state = newState;
             }
             window.blurView = 0
         }
@@ -893,6 +902,8 @@ ApplicationWindow {
                     icon.width: parent.height / 1.5
                     icon.color: "white"
                     icon.source: {
+                        if (cslate.state === "VideoCapture")
+                            return window.videoTorchOn ? "icons/torchOn.svg" : "icons/flashOff.svg";
                         switch(settings.flashMode) {
                             case flashOff: return "icons/flashOff.svg";
                             case flashOn: return "icons/flashOn.svg";
@@ -907,7 +918,11 @@ ApplicationWindow {
                     }
 
                     onClicked: {
-                        if (settings.cameraPosition !== frontFace) {
+                        if (cslate.state === "VideoCapture") {
+                            window.videoTorchOn = !window.videoTorchOn
+                            if (cameraLoader.item)
+                                cameraLoader.item.handleSetTorch(window.videoTorchOn)
+                        } else if (settings.cameraPosition !== frontFace) {
                             switch(settings.flashMode) {
                                 case flashOff:
                                     settings.flashMode = flashOn;
@@ -916,6 +931,9 @@ ApplicationWindow {
                                     settings.flashMode = flashAuto;
                                     break;
                                 case flashAuto:
+                                    settings.flashMode = flashOff;
+                                    break;
+                                case flashTorch:
                                     settings.flashMode = flashOff;
                                     break;
                             }
@@ -980,6 +998,12 @@ ApplicationWindow {
                                     window.swipeDirection = 2
                                     window.blurView = 1
                                     swappingDelay.start()
+                                    // Turn off video torch when leaving video mode
+                                    if (window.videoTorchOn) {
+                                        window.videoTorchOn = false
+                                        if (cameraLoader.item)
+                                            cameraLoader.item.handleSetTorch(false)
+                                    }
                                 }
                             }
                         }

@@ -156,6 +156,12 @@ Item {
         // imperative cam2.setFlashMode here would break that binding.
     }
 
+    // Torch toggle for video mode — called from main.qml (cam2 id is
+    // scoped inside this component, not accessible from outside).
+    function handleSetTorch(on) {
+        cam2.setTorch(on)
+    }
+
     function handleCameraTakeShot() {
         pinchArea.enabled = true
         if (settings.soundOn === 1)
@@ -449,9 +455,11 @@ Item {
         hdrEnabled: settings.hdrEnabled   // HDR burst+fuse handled in the bridge
         hdrSaveEv0: settings.hdrSaveEv0   // also keep the un-fused EV0 baseline frame
         // Flash mode tracks the GUI setting reactively (applied on startup + every
-        // change), mapping the QtMultimedia enum to the engine's 0=off/1=on/2=auto.
+        // change), mapping to the engine's 0=off/1=on/2=auto/3=torch.
         flashMode: (settings.flashMode === window.flashOn) ? 1
-                 : (settings.flashMode === window.flashAuto) ? 2 : 0
+                 : (settings.flashMode === window.flashAuto) ? 2
+                 : (settings.flashMode === window.flashTorch) ? 3
+                 : 0
 
         // Video mode + recording size are applied atomically at discrete moments
         // (entering video mode, starting a recording) via applyVideoMode() /

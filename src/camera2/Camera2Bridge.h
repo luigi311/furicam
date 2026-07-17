@@ -318,6 +318,7 @@ private:
     void doSingleCapture(const QString& outputPath);      // one still (after any precapture)
     void fixExifDateTime(const QString& path);            // shift UTC EXIF → local time
     void beginAutoFlashCapture(const QString& outputPath, int attempt);  // poll AE then shoot
+    void beginFlashAfCapture(const QString& outputPath, int attempt, int flashRestore = -1);
     void finishHdrBurst();            // fuse the burst on a worker thread
     void claimAccelerometer();        // claim iio-sensor-proxy so orientation is live
     int  queryDeviceRotation();       // on-demand device tilt (0/90/180/270) for capture tagging

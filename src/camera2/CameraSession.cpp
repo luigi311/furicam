@@ -1047,6 +1047,8 @@ void CameraSession::onCaptureResult(void* ctx, ACameraCaptureSession* /*session*
     ACameraMetadata_const_entry e{};
     if (ACameraMetadata_getConstEntry(result, ACAMERA_CONTROL_AE_STATE, &e) == ACAMERA_OK && e.count >= 1)
         self->lastAeState_.store(e.data.u8[0]);
+    if (ACameraMetadata_getConstEntry(result, ACAMERA_CONTROL_AF_STATE, &e) == ACAMERA_OK && e.count >= 1)
+        self->lastAfState_.store(e.data.u8[0]);
     // Cache WB gains / ISO / exposure for DNG AsShotNeutral metadata
     {
         std::lock_guard<std::mutex> lk(self->resultMutex_);
@@ -1753,6 +1755,31 @@ void CameraSession::triggerPrecapture()
     ACameraCaptureSession_capture(captureSession_, nullptr, 1, &activeRequest_, &seq);
     uint8_t idle = 0;    // ACAMERA_CONTROL_AE_PRECAPTURE_TRIGGER_IDLE
     ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AE_PRECAPTURE_TRIGGER, 1, &idle);
+}
+
+// Turn on torch, switch to AF_AUTO, fire AF_TRIGGER_START so the camera focuses
+// with the assist light before a flash shot.  Returns immediately and leaves the
+// repeating request in AF_AUTO; the caller polls afState() for convergence, then
+// turns off the torch and submits the still capture.
+void CameraSession::triggerAfAssist()
+{
+    if (!captureSession_ || !activeRequest_)
+        return;
+    // Turn on the torch for AF assist in low light.
+    uint8_t torchOn = (uint8_t)ACAMERA_FLASH_MODE_TORCH;
+    ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_FLASH_MODE, 1, &torchOn);
+    // Switch to single-shot AF so the trigger takes effect.
+    uint8_t afAuto = (uint8_t)ACAMERA_CONTROL_AF_MODE_AUTO;
+    ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AF_MODE, 1, &afAuto);
+    // Fire AF trigger.
+    uint8_t start = (uint8_t)ACAMERA_CONTROL_AF_TRIGGER_START;
+    ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AF_TRIGGER, 1, &start);
+    int seq = 0;
+    ACameraCaptureSession_capture(captureSession_, nullptr, 1, &activeRequest_, &seq);
+    // Reset trigger to IDLE so the HAL doesn't keep re-triggering.
+    uint8_t afIdle = (uint8_t)ACAMERA_CONTROL_AF_TRIGGER_IDLE;
+    ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AF_TRIGGER, 1, &afIdle);
+    ACameraCaptureSession_setRepeatingRequest(activeSession_, nullptr, 1, &activeRequest_, nullptr);
 }
 
 void CameraSession::setZoomRatio(float ratio)

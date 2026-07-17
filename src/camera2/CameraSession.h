@@ -240,6 +240,8 @@ public:
     void  setFlashMode(int mode);                          // 0=off, 1=on, 2=auto (per-shot)
     void  triggerPrecapture();                             // kick AE precapture (auto-flash metering)
     int   aeState() const { return lastAeState_.load(); }  // ACAMERA_CONTROL_AE_STATE_* (result)
+    void  triggerAfAssist();                               // torch on + AF trigger (flash-assisted focus)
+    int   afState() const { return lastAfState_.load(); }  // ACAMERA_CONTROL_AF_STATE_* (result)
     void  setFocusPoint(float x, float y);                 // normalized [0,1]; triggers AF
     float minZoomRatio() const { return openZoomMin_; }    // from open camera characteristics
     float maxZoomRatio() const { return openZoomMax_; }    // from open camera characteristics
@@ -346,6 +348,7 @@ private:
     ACameraCaptureSession_stateCallbacks sessionCb_{};
     ACameraCaptureSession_captureCallbacks resultCb_{};   // reads AE_STATE off results
     std::atomic<int>                     lastAeState_{0};
+    std::atomic<int>                     lastAfState_{0};  // cached AF state from capture results
     std::mutex                           resultMutex_;
     float                                resultGains_[4] = {1, 1, 1, 1};
     bool                                 haveResultGains_ = false;

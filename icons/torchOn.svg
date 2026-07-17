@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="4.2333331mm"
+   height="4.233521mm"
+   viewBox="0 0 4.2333331 4.2335209"
+   version="1.1"
+   id="svg8328"
+   xmlns="http://www.w3.org/2000/svg">
+  <defs id="defs8325" />
+  <g
+     id="layer1"
+     transform="translate(-53.59205,-158.96277)">
+    <g
+       id="g313236"
+       transform="matrix(0.26458333,0,0,0.26458333,-156.91099,140.76505)"
+       style="fill:#222222">
+      <g
+         id="g2143"
+         transform="translate(735.60205,-251.22078)">
+        <rect
+           style="fill:none"
+           id="rect2029"
+           width="16"
+           height="16"
+           x="60"
+           y="320" />
+        <!-- handle -->
+        <rect
+           style="fill:#222222"
+           id="torch-handle"
+           x="64"
+           y="320"
+           width="8"
+           height="2" />
+        <!-- body (trapezoidal, rounded bottom) -->
+        <path
+           style="fill:#222222"
+           id="torch-body"
+           d="m 70.5,325.5 v 9 a 1.5,1.5 0 0,1 -1.5,1.5 h -2 a 1.5,1.5 0 0,1 -1.5,-1.5 v -9 l -1.5,-1.5 v -2 h 8 v 2 z"
+           mask="none" />
+        <!-- lens -->
+        <circle
+           style="fill:#222222"
+           id="torch-lens"
+           cx="68"
+           cy="327"
+           r="1.2" />
+      </g>
+    </g>
+  </g>
+</svg>

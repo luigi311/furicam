@@ -273,6 +273,12 @@ void Camera2Bridge::startCamera(int newFacing)
     // Re-apply a pending video-mode request now that preview is streaming (also
     // re-enters video mode after a camera switch, which reopens the session).
     applyVideoMode();
+    // Sync deferred settings that may have been set via QML bindings before the
+    // session was created (flash mode, etc.).  The QML property bindings fire during
+    // component construction, but session_ doesn't exist until startCamera() runs.
+    if (session_) {
+        session_->setFlashMode(flashMode_);
+    }
     ready_.store(true);
     emit readyChanged();
     update();
@@ -738,6 +744,19 @@ void Camera2Bridge::capturePhoto(const QString& outputPath, const QString& /*set
         beginAutoFlashCapture(outputPath, 0);
         return;
     }
+    // Torch mode: light is already on continuously — focus is aided by the
+    // ongoing torch, so no AF assist is needed.  Just capture without extra flash.
+    if (flashMode_ == 3) {
+        doSingleCapture(outputPath);
+        return;
+    }
+    // Flash ON: trigger AF with torch assist before capture so the camera can focus
+    // in low light (the torch lights up, AF locks, torch off, then the real flash fires).
+    if (flashMode_ == 1) {
+        session_->triggerAfAssist();
+        beginFlashAfCapture(outputPath, 0, -1);  // -1: no flash-mode restore needed
+        return;
+    }
     doSingleCapture(outputPath);
 }
 
@@ -752,10 +771,11 @@ void Camera2Bridge::beginAutoFlashCapture(const QString& outputPath, int attempt
     const int elapsedMs = attempt * 50;
     const bool settled = (s == 2 || s == 3 || s == 4);
     if ((settled && elapsedMs >= 200) || elapsedMs >= 1200) {
-        if (s == 4) {                       // dark → force the flash to actually fire
+        if (s == 4) {                       // dark → force the flash to actually fire + AF assist
             session_->setFlashMode(1);      // ON_ALWAYS_FLASH for this shot
-            doSingleCapture(outputPath);
-            session_->setFlashMode(2);      // restore Auto for the preview/next shot
+            session_->triggerAfAssist();    // torch on, AF trigger for low-light focus
+            beginFlashAfCapture(outputPath, 0, 2);  // poll AF, then capture; restore flash AUTO after
+            return;
         } else {                            // bright → no flash
             doSingleCapture(outputPath);
         }
@@ -763,6 +783,31 @@ void Camera2Bridge::beginAutoFlashCapture(const QString& outputPath, int attempt
     }
     QTimer::singleShot(50, this, [this, outputPath, attempt] {
         beginAutoFlashCapture(outputPath, attempt + 1);
+    });
+}
+
+// Poll the cached AF state until focus settles, then turn off the torch and shoot.
+// AF_TRIGGER_START was already fired by triggerAfAssist() which also turned on the
+// torch.  We wait for FOCUSED_LOCKED or NOT_FOCUSED_LOCKED (or a timeout), then
+// turn the torch off and submit the still capture with the flash.
+// ACAMERA_CONTROL_AF_STATE: 4=FOCUSED_LOCKED 5=NOT_FOCUSED_LOCKED.
+// flashRestore: if >= 0, setFlashMode(flashRestore) after the shot (auto-flash path).
+void Camera2Bridge::beginFlashAfCapture(const QString& outputPath, int attempt, int flashRestore)
+{
+    if (!session_) return;
+    const int s = session_->afState();
+    const int elapsedMs = attempt * 50;
+    const bool settled = (s == 4 || s == 5);
+    if ((settled && elapsedMs >= 250) || elapsedMs >= 1500) {
+        // Turn off the AF-assist torch before the actual capture flash fires.
+        session_->setTorch(false);
+        doSingleCapture(outputPath);
+        if (flashRestore >= 0)
+            session_->setFlashMode(flashRestore);
+        return;
+    }
+    QTimer::singleShot(50, this, [this, outputPath, attempt, flashRestore] {
+        beginFlashAfCapture(outputPath, attempt + 1, flashRestore);
     });
 }
 
@@ -963,9 +1008,16 @@ void Camera2Bridge::setFlashMode(int mode)
 {
     if (mode == flashMode_)
         return;
+    // Turn off torch if leaving torch mode (3 → anything else)
+    if (flashMode_ == 3 && session_)
+        session_->setTorch(false);
     flashMode_ = mode;
-    if (session_)
+    if (session_) {
+        // Torch mode: keep the LED on continuously via the repeating request
+        if (mode == 3)
+            session_->setTorch(true);
         session_->setFlashMode(mode);
+    }
     emit flashModeChanged();
 }
 
