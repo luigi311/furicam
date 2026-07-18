@@ -1047,8 +1047,12 @@ void CameraSession::onCaptureResult(void* ctx, ACameraCaptureSession* /*session*
     ACameraMetadata_const_entry e{};
     if (ACameraMetadata_getConstEntry(result, ACAMERA_CONTROL_AE_STATE, &e) == ACAMERA_OK && e.count >= 1)
         self->lastAeState_.store(e.data.u8[0]);
-    if (ACameraMetadata_getConstEntry(result, ACAMERA_CONTROL_AF_STATE, &e) == ACAMERA_OK && e.count >= 1)
+    if (ACameraMetadata_getConstEntry(result, ACAMERA_CONTROL_AF_STATE, &e) == ACAMERA_OK && e.count >= 1) {
         self->lastAfState_.store(e.data.u8[0]);
+        // Stamp with the current assist generation so the caller can tell a fresh
+        // post-trigger focus result from a stale pre-trigger one.
+        self->afResultGen_.store(self->afAssistGen_.load());
+    }
     // Cache WB gains / ISO / exposure for DNG AsShotNeutral metadata
     {
         std::lock_guard<std::mutex> lk(self->resultMutex_);
@@ -1643,8 +1647,11 @@ void CameraSession::applyControls(ACaptureRequest* req) const
     uint8_t ae = (uint8_t)ctlAeMode_;
     // For AUTO flash, keep the preview AE in auto-flash so the HAL meters and can
     // decide to fire on the still capture.  (Always-flash is applied only on the
-    // still request — on the preview it would behave like a torch.)
-    if (ctlAeMode_ != ACAMERA_CONTROL_AE_MODE_OFF && flashMode_ == 2)
+    // still request — on the preview it would behave like a torch.)  Skip this
+    // while the torch is on: ON_AUTO_FLASH AE + FLASH_MODE_TORCH conflict on this
+    // HAL, which drops the torch (that broke the video torch when photo flash
+    // was set to auto).
+    if (ctlAeMode_ != ACAMERA_CONTROL_AE_MODE_OFF && flashMode_ == 2 && !ctlTorch_)
         ae = ACAMERA_CONTROL_AE_MODE_ON_AUTO_FLASH;
     ACaptureRequest_setEntry_u8(req, ACAMERA_CONTROL_AE_MODE, 1, &ae);
     // Cancel mains-light flicker banding (50/60 Hz); AUTO lets the HAL detect which.
@@ -1758,28 +1765,43 @@ void CameraSession::triggerPrecapture()
 }
 
 // Turn on torch, switch to AF_AUTO, fire AF_TRIGGER_START so the camera focuses
-// with the assist light before a flash shot.  Returns immediately and leaves the
+// with the assist light before a flash shot.  The torch goes through ctlTorch_ so
+// applyControls() keeps AE/flash consistent.  Returns immediately and leaves the
 // repeating request in AF_AUTO; the caller polls afState() for convergence, then
-// turns off the torch and submits the still capture.
+// calls endAfAssist() to drop the torch + restore AF before the still capture.
 void CameraSession::triggerAfAssist()
 {
     if (!captureSession_ || !activeRequest_)
         return;
-    // Turn on the torch for AF assist in low light.
-    uint8_t torchOn = (uint8_t)ACAMERA_FLASH_MODE_TORCH;
-    ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_FLASH_MODE, 1, &torchOn);
-    // Switch to single-shot AF so the trigger takes effect.
-    uint8_t afAuto = (uint8_t)ACAMERA_CONTROL_AF_MODE_AUTO;
-    ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AF_MODE, 1, &afAuto);
-    // Fire AF trigger.
+    prevAfMode_ = ctlAfMode_;            // remember to restore after the shot
+    afAssistGen_.fetch_add(1);           // invalidate any AF state cached before this trigger
+    // Torch on + AF_AUTO via the control state, then push it to the REPEATING
+    // request so the LED stays lit for the whole focus dwell (a one-shot capture
+    // only lights the torch for a single frame — the preview repeating request
+    // immediately overrides it, which is why flash-ON's pre-torch looked ~1 frame).
+    ctlTorch_ = 1;
+    ctlAfMode_ = ACAMERA_CONTROL_AF_MODE_AUTO;
+    applyControlsToActive();
+    // Fire AF trigger as a one-shot (the trigger itself is edge-triggered).
     uint8_t start = (uint8_t)ACAMERA_CONTROL_AF_TRIGGER_START;
     ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AF_TRIGGER, 1, &start);
     int seq = 0;
     ACameraCaptureSession_capture(captureSession_, nullptr, 1, &activeRequest_, &seq);
-    // Reset trigger to IDLE so the HAL doesn't keep re-triggering.
+    // Reset trigger to IDLE so the HAL doesn't keep re-triggering, and re-push the
+    // repeating request with the trigger back at IDLE (torch/AF_AUTO stay set).
     uint8_t afIdle = (uint8_t)ACAMERA_CONTROL_AF_TRIGGER_IDLE;
     ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_CONTROL_AF_TRIGGER, 1, &afIdle);
-    ACameraCaptureSession_setRepeatingRequest(activeSession_, nullptr, 1, &activeRequest_, nullptr);
+    applyControlsToActive();
+}
+
+// Drop the AF-assist torch and restore the previous AF mode before the still
+// capture so ON_ALWAYS_FLASH fires on a clean request (a lingering TORCH +
+// AF_AUTO on the repeating request suppressed the flash on this HAL).
+void CameraSession::endAfAssist()
+{
+    ctlTorch_ = 0;
+    ctlAfMode_ = prevAfMode_;
+    applyControlsToActive();
 }
 
 void CameraSession::setZoomRatio(float ratio)
@@ -1814,6 +1836,15 @@ void CameraSession::setFocusPoint(float x, float y)
     applyControls(activeRequest_);
     ACaptureRequest_setEntry_i32(activeRequest_, ACAMERA_CONTROL_AF_REGIONS, 5, region);
     ACaptureRequest_setEntry_i32(activeRequest_, ACAMERA_CONTROL_AE_REGIONS, 5, region);
+
+    // Light the AF-assist torch for tap-to-focus whenever the flash would fire
+    // (ON or AUTO), so low-light focusing behaves the same in both modes.  The
+    // bridge turns it off via setTorch(false) once focus settles.
+    focusAssistLit_ = !ctlTorch_ && (flashMode_ == 1 || flashMode_ == 2);
+    if (focusAssistLit_) {
+        uint8_t torchOn = (uint8_t)ACAMERA_FLASH_MODE_TORCH;
+        ACaptureRequest_setEntry_u8(activeRequest_, ACAMERA_FLASH_MODE, 1, &torchOn);
+    }
 
     // Fire a one-shot AF trigger, then resume the repeating request (region stays).
     uint8_t start = ACAMERA_CONTROL_AF_TRIGGER_START;

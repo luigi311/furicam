@@ -241,8 +241,19 @@ public:
     void  triggerPrecapture();                             // kick AE precapture (auto-flash metering)
     int   aeState() const { return lastAeState_.load(); }  // ACAMERA_CONTROL_AE_STATE_* (result)
     void  triggerAfAssist();                               // torch on + AF trigger (flash-assisted focus)
+    void  endAfAssist();                                   // torch off + restore AF before the still
     int   afState() const { return lastAfState_.load(); }  // ACAMERA_CONTROL_AF_STATE_* (result)
+    // AF-assist generation: bumped on each trigger so the caller can tell a FRESH
+    // focus result from a stale one cached before the trigger.
+    int   afAssistGen() const { return afAssistGen_.load(); }
+    // Settled AF state valid only if it arrived after the given generation.
+    bool  afSettledSince(int gen) const {
+        return afResultGen_.load() > gen &&
+               (lastAfState_.load() == 4 || lastAfState_.load() == 5);
+    }
     void  setFocusPoint(float x, float y);                 // normalized [0,1]; triggers AF
+    bool  focusAssistLit() const { return focusAssistLit_; } // tap lit the assist torch
+    void  clearFocusAssist() { focusAssistLit_ = false; }
     float minZoomRatio() const { return openZoomMin_; }    // from open camera characteristics
     float maxZoomRatio() const { return openZoomMax_; }    // from open camera characteristics
     // AE-compensation index range of the open camera.
@@ -349,6 +360,8 @@ private:
     ACameraCaptureSession_captureCallbacks resultCb_{};   // reads AE_STATE off results
     std::atomic<int>                     lastAeState_{0};
     std::atomic<int>                     lastAfState_{0};  // cached AF state from capture results
+    std::atomic<int>                     afAssistGen_{0};  // bumped on each AF-assist trigger
+    std::atomic<int>                     afResultGen_{0};  // gen of the latest AF result
     std::mutex                           resultMutex_;
     float                                resultGains_[4] = {1, 1, 1, 1};
     bool                                 haveResultGains_ = false;
@@ -443,6 +456,8 @@ private:
     float   ctlZoom_       = 1.0f;
     float   ctlFocusDistance_ = 0.0f;   // 0 = infinity (lens focus at furthest); diopters
     int     ctlTorch_      = 0;
+    int     prevAfMode_    = ACAMERA_CONTROL_AF_MODE_CONTINUOUS_PICTURE;  // saved by triggerAfAssist
+    bool    focusAssistLit_ = false;  // tap-to-focus lit the assist torch (bridge turns it off)
     int     flashMode_     = 0;   // per-shot flash: 0=off, 1=on, 2=auto
     int     openActiveArray_[4] = {0, 0, 0, 0};
     float   openZoomMin_       = 1.0f;          // CONTROL_ZOOM_RATIO_RANGE min (fallback 1x)

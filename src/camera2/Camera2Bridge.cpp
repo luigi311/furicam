@@ -750,11 +750,11 @@ void Camera2Bridge::capturePhoto(const QString& outputPath, const QString& /*set
         doSingleCapture(outputPath);
         return;
     }
-    // Flash ON: trigger AF with torch assist before capture so the camera can focus
-    // in low light (the torch lights up, AF locks, torch off, then the real flash fires).
+    // Flash ON: same AF-assist + timing as auto-flash's dark path (unified).
+    // Torch lights, AF locks under the assist light, brief settle, then flash fires.
     if (flashMode_ == 1) {
         session_->triggerAfAssist();
-        beginFlashAfCapture(outputPath, 0, -1);  // -1: no flash-mode restore needed
+        beginFlashAfCapture(outputPath, 0, -1, 800, 200, session_->afAssistGen());
         return;
     }
     doSingleCapture(outputPath);
@@ -774,7 +774,9 @@ void Camera2Bridge::beginAutoFlashCapture(const QString& outputPath, int attempt
         if (s == 4) {                       // dark → force the flash to actually fire + AF assist
             session_->setFlashMode(1);      // ON_ALWAYS_FLASH for this shot
             session_->triggerAfAssist();    // torch on, AF trigger for low-light focus
-            beginFlashAfCapture(outputPath, 0, 2);  // poll AF, then capture; restore flash AUTO after
+            // Poll AF, then capture; restore flash AUTO after.  Same timing as the
+            // flash-ON path so both feel identical.
+            beginFlashAfCapture(outputPath, 0, 2, 800, 200, session_->afAssistGen());
             return;
         } else {                            // bright → no flash
             doSingleCapture(outputPath);
@@ -786,28 +788,39 @@ void Camera2Bridge::beginAutoFlashCapture(const QString& outputPath, int attempt
     });
 }
 
-// Poll the cached AF state until focus settles, then turn off the torch and shoot.
-// AF_TRIGGER_START was already fired by triggerAfAssist() which also turned on the
-// torch.  We wait for FOCUSED_LOCKED or NOT_FOCUSED_LOCKED (or a timeout), then
-// turn the torch off and submit the still capture with the flash.
+// Poll the cached AF state until focus settles, then turn off the torch, wait a
+// short settle gap, and shoot.  AF_TRIGGER_START was already fired by
+// triggerAfAssist() which also turned on the torch.  We wait for FOCUSED_LOCKED
+// or NOT_FOCUSED_LOCKED (with minDwellMs keeping the torch up long enough to
+// actually help focus, and a timeout backstop), then endAfAssist() drops the
+// torch + restores AF, we pause settleMs so the flash doesn't fire on the same
+// breath as the torch cutoff, then submit the still.
 // ACAMERA_CONTROL_AF_STATE: 4=FOCUSED_LOCKED 5=NOT_FOCUSED_LOCKED.
 // flashRestore: if >= 0, setFlashMode(flashRestore) after the shot (auto-flash path).
-void Camera2Bridge::beginFlashAfCapture(const QString& outputPath, int attempt, int flashRestore)
+void Camera2Bridge::beginFlashAfCapture(const QString& outputPath, int attempt,
+                                        int flashRestore, int minDwellMs, int settleMs, int gen)
 {
     if (!session_) return;
-    const int s = session_->afState();
     const int elapsedMs = attempt * 50;
-    const bool settled = (s == 4 || s == 5);
-    if ((settled && elapsedMs >= 250) || elapsedMs >= 1500) {
-        // Turn off the AF-assist torch before the actual capture flash fires.
-        session_->setTorch(false);
-        doSingleCapture(outputPath);
-        if (flashRestore >= 0)
-            session_->setFlashMode(flashRestore);
+    // Only accept an AF lock that arrived AFTER this trigger (a stale lock cached
+    // before the trigger let flash-ON fire before the torch actually helped).
+    const bool settled = session_->afSettledSince(gen);
+    if ((settled && elapsedMs >= minDwellMs) || elapsedMs >= 1500) {
+        // Drop the AF-assist torch AND restore the prior AF mode before the still
+        // so ON_ALWAYS_FLASH fires on a clean request (lingering torch + AF_AUTO
+        // on the repeating request suppressed the flash on this HAL).
+        session_->endAfAssist();
+        // Brief gap between torch-off and the flash firing so the HAL reconfigures
+        // from torch to flash pulse cleanly.
+        QTimer::singleShot(settleMs, this, [this, outputPath, flashRestore] {
+            doSingleCapture(outputPath);
+            if (flashRestore >= 0 && session_)
+                session_->setFlashMode(flashRestore);
+        });
         return;
     }
-    QTimer::singleShot(50, this, [this, outputPath, attempt, flashRestore] {
-        beginFlashAfCapture(outputPath, attempt + 1, flashRestore);
+    QTimer::singleShot(50, this, [this, outputPath, attempt, flashRestore, minDwellMs, settleMs, gen] {
+        beginFlashAfCapture(outputPath, attempt + 1, flashRestore, minDwellMs, settleMs, gen);
     });
 }
 
@@ -999,8 +1012,30 @@ void Camera2Bridge::setAutoFocus()
 
 void Camera2Bridge::setFocusPoint(float x, float y)
 {
-    if (session_)
-        session_->setFocusPoint(x, y);
+    if (!session_)
+        return;
+    session_->setFocusPoint(x, y);
+    // If the tap lit the AF-assist torch (flash ON/AUTO), cut it once focus locks
+    // (or after a timeout) — tap-to-focus isn't followed by a capture that would
+    // otherwise drop it.
+    if (session_->focusAssistLit())
+        endFocusAssist(0);
+}
+
+// Poll AF after a tap-to-focus that lit the assist torch; cut the torch once
+// focus locks or after ~1.5 s.
+void Camera2Bridge::endFocusAssist(int attempt)
+{
+    if (!session_)
+        return;
+    const int s = session_->afState();
+    const bool settled = (s == 4 || s == 5);
+    if (settled || attempt * 50 >= 1500) {
+        session_->setTorch(false);
+        session_->clearFocusAssist();
+        return;
+    }
+    QTimer::singleShot(50, this, [this, attempt] { endFocusAssist(attempt + 1); });
 }
 
 void Camera2Bridge::setTorch(bool on) { if (session_) session_->setTorch(on); }

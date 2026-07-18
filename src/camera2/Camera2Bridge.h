@@ -231,6 +231,7 @@ public:
 
     // Tap-to-focus.  x,y in normalised [0,1] across the visible preview surface.
     Q_INVOKABLE void setFocusPoint(float x, float y);
+    void endFocusAssist(int attempt);   // cut the tap-to-focus assist torch once AF locks
 
     // Torch (continuous flash for video lighting).
     Q_INVOKABLE void setTorch(bool on);
@@ -318,7 +319,11 @@ private:
     void doSingleCapture(const QString& outputPath);      // one still (after any precapture)
     void fixExifDateTime(const QString& path);            // shift UTC EXIF → local time
     void beginAutoFlashCapture(const QString& outputPath, int attempt);  // poll AE then shoot
-    void beginFlashAfCapture(const QString& outputPath, int attempt, int flashRestore = -1);
+    // Poll AF (AF assist) then still-capture.  minDwellMs = min torch-on time;
+    // settleMs = gap between torch-off and the flash firing; gen = AF-assist
+    // generation so only a fresh post-trigger lock satisfies the gate.
+    void beginFlashAfCapture(const QString& outputPath, int attempt, int flashRestore,
+                             int minDwellMs, int settleMs, int gen);
     void finishHdrBurst();            // fuse the burst on a worker thread
     void claimAccelerometer();        // claim iio-sensor-proxy so orientation is live
     int  queryDeviceRotation();       // on-demand device tilt (0/90/180/270) for capture tagging
