@@ -1,12 +1,17 @@
 # ponytail: minimal OpenCV finder — full libopencv-dev pulls Qt5, we only need core/imgproc/photo.
 # Replace with upstream OpenCVConfig.cmake if the distro ships Qt6-compatible opencv packages.
+# On Flatpak: set OpenCV_DIR to /app/lib/cmake/opencv4 or set OpenCV_INCLUDE_DIR/OpenCV_LIB_DIR.
 
 if(NOT OpenCV_FIND_COMPONENTS)
     set(OpenCV_FIND_COMPONENTS core imgproc photo)
 endif()
 
-set(OpenCV_INCLUDE_DIR /usr/include/opencv4)
-set(OpenCV_LIB_DIR /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE})
+if(NOT OpenCV_INCLUDE_DIR)
+    set(OpenCV_INCLUDE_DIR /usr/include/opencv4 CACHE PATH "OpenCV include directory")
+endif()
+if(NOT OpenCV_LIB_DIR)
+    set(OpenCV_LIB_DIR /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE} CACHE PATH "OpenCV library directory")
+endif()
 
 set(OpenCV_INCLUDE_DIRS ${OpenCV_INCLUDE_DIR})
 

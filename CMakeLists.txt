@@ -34,7 +34,13 @@ execute_process(COMMAND pkg-config --libs gstreamer-1.0 OUTPUT_VARIABLE GST_LIBS
 
 execute_process(COMMAND pkg-config --variable=libdir glib-2.0 OUTPUT_VARIABLE GLIB_LIBDIR OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-include_directories(/usr/include/ZXing)
+if(NOT DEFINED ZXING_INCLUDE_DIR)
+    find_path(ZXING_INCLUDE_DIR ReadBarcode.h PATHS /usr/include/ZXing /app/include/ZXing)
+    if(NOT ZXING_INCLUDE_DIR)
+        set(ZXING_INCLUDE_DIR /usr/include/ZXing)
+    endif()
+endif()
+include_directories(${ZXING_INCLUDE_DIR})
 
 set(APP_SOURCES
 		${CMAKE_SOURCE_DIR}/src/main.cpp
@@ -92,7 +98,7 @@ qt6_add_resources(APP_RESOURCES
 add_executable(${PROJECT_NAME} ${APP_SOURCES} ${APP_HEADERS} ${APP_RESOURCES})
 
 target_include_directories(${PROJECT_NAME} PUBLIC
-    /usr/include/opencv4
+    ${OpenCV_INCLUDE_DIRS}
     /usr/include/gstreamer-1.0
     /usr/include/glib-2.0
     ${GLIB_LIBDIR}/glib-2.0/include
@@ -118,7 +124,14 @@ if(FURICAM_CAMERA2 AND EXISTS ${CMAKE_SOURCE_DIR}/src/camera2/tools/camera2_prob
     target_link_libraries(camera2_probe PRIVATE furicam_camera)
 endif()
 
-install(TARGETS ${PROJECT_NAME} DESTINATION /usr/bin)
-install(FILES ${CMAKE_SOURCE_DIR}/furicam.desktop DESTINATION /usr/share/applications)
+# Flatpak build: CMAKE_INSTALL_PREFIX=/app (use relative paths).
+# Debian package: dh_auto_install uses DESTDIR (absolute paths are fine).
+if(CMAKE_INSTALL_PREFIX STREQUAL "/app")
+    install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+    install(FILES ${CMAKE_SOURCE_DIR}/furicam.desktop DESTINATION share/applications)
+else()
+    install(TARGETS ${PROJECT_NAME} DESTINATION /usr/bin)
+    install(FILES ${CMAKE_SOURCE_DIR}/furicam.desktop DESTINATION /usr/share/applications)
+endif()
 # Share icon, system /etc config, polkit pkla, and GSettings schema with the
 # original furicam install — they are read-only and version-agnostic.

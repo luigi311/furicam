@@ -1,0 +1,166 @@
+{
+    "app-id": "io.github.nico359.furicam",
+    "runtime": "org.kde.Platform",
+    "runtime-version": "6.11",
+    "sdk": "org.kde.Sdk",
+    "command": "furicam",
+    "finish-args": [
+        "--socket=wayland",
+        "--socket=session-bus",
+        "--socket=system-bus",
+        "--device=all",
+        "--filesystem=host",
+        "--env=GST_PLUGIN_PATH=/run/host/usr/lib/aarch64-linux-gnu/gstreamer-1.0",
+        "--env=GSETTINGS_SCHEMA_DIR=/run/host/usr/share/glib-2.0/schemas"
+    ],
+    "build-options": {
+        "cflags": "-O2 -g",
+        "cxxflags": "-O2 -g",
+        "ldflags": "-Wl,--allow-shlib-undefined",
+        "build-args": [
+            "--share=network",
+            "--filesystem=/run/host",
+            "--filesystem=host"
+        ]
+    },
+    "modules": [
+        {
+            "name": "md4c",
+            "no-debuginfo": true,
+            "buildsystem": "cmake-ninja",
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/mity/md4c/archive/refs/tags/release-0.5.2.tar.gz",
+                    "sha256": "55d0111d48fb11883aaee91465e642b8b640775a4d6993c2d0e7a8092758ef21"
+                }
+            ]
+        },
+        {
+            "name": "libinih",
+            "no-debuginfo": true,
+            "buildsystem": "meson",
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/benhoyt/inih/archive/refs/tags/r58.tar.gz",
+                    "sha256": "e79216260d5dffe809bda840be48ab0eec7737b2bb9f02d2275c1b46344ea7b7"
+                }
+            ]
+        },
+        {
+            "name": "zxing-cpp",
+            "no-debuginfo": true,
+            "buildsystem": "cmake-ninja",
+            "config-opts": [
+                "-DBUILD_SHARED_LIBS=ON",
+                "-DBUILD_EXAMPLES=OFF",
+                "-DBUILD_BLACKBOX_TESTS=OFF",
+                "-DBUILD_UNIT_TESTS=OFF",
+                "-DBUILD_PYTHON_MODULE=OFF"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/zxing-cpp/zxing-cpp/archive/refs/tags/v2.3.0.tar.gz",
+                    "sha256": "64e4139103fdbc57752698ee15b5f0b0f7af9a0331ecbdc492047e0772c417ba"
+                }
+            ]
+        },
+        {
+            "name": "exiv2",
+            "no-debuginfo": true,
+            "buildsystem": "cmake-ninja",
+            "config-opts": [
+                "-DEXIV2_BUILD_SAMPLES=OFF",
+                "-DEXIV2_BUILD_EXIV2_COMMAND=OFF",
+                "-DEXIV2_BUILD_UNIT_TESTS=OFF",
+                "-DEXIV2_ENABLE_BMFF=ON",
+                "-DEXIV2_ENABLE_BROTLI=OFF",
+                "-DEXIV2_ENABLE_INIH=OFF"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/Exiv2/exiv2/archive/refs/tags/v0.28.5.tar.gz",
+                    "sha256": "e1671f744e379a87ba0c984617406fdf8c0ad0c594e5122f525b2fb7c28d394d"
+                }
+            ]
+        },
+        {
+            "name": "opencv",
+            "builddir": true,
+            "no-debuginfo": true,
+            "buildsystem": "cmake-ninja",
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DBUILD_SHARED_LIBS=ON",
+                "-DBUILD_opencv_python3=OFF",
+                "-DBUILD_opencv_python2=OFF",
+                "-DBUILD_opencv_java=OFF",
+                "-DBUILD_opencv_apps=OFF",
+                "-DBUILD_opencv_calib3d=OFF",
+                "-DBUILD_opencv_dnn=OFF",
+                "-DBUILD_opencv_features2d=OFF",
+                "-DBUILD_opencv_flann=OFF",
+                "-DBUILD_opencv_gapi=OFF",
+                "-DBUILD_opencv_highgui=OFF",
+                "-DBUILD_opencv_ml=OFF",
+                "-DBUILD_opencv_objdetect=OFF",
+                "-DBUILD_opencv_stitching=OFF",
+                "-DBUILD_opencv_ts=OFF",
+                "-DBUILD_opencv_video=OFF",
+                "-DBUILD_opencv_videoio=OFF",
+                "-DBUILD_TESTS=OFF",
+                "-DBUILD_PERF_TESTS=OFF",
+                "-DBUILD_DOCS=OFF",
+                "-DBUILD_EXAMPLES=OFF",
+                "-DWITH_OPENCL=OFF",
+                "-DWITH_OPENEXR=OFF",
+                "-DWITH_IPP=OFF",
+                "-DWITH_JASPER=OFF",
+                "-DWITH_WEBP=OFF",
+                "-DWITH_TIFF=OFF",
+                "-DWITH_OPENJPEG=OFF",
+                "-DWITH_1394=OFF",
+                "-DWITH_VTK=OFF",
+                "-DWITH_GSTREAMER=OFF",
+                "-DWITH_FFMPEG=OFF",
+                "-DWITH_QT=OFF",
+                "-DWITH_GTK=OFF",
+                "-DWITH_V4L=OFF",
+                "-DWITH_EIGEN=OFF",
+                "-DWITH_PROTOBUF=OFF",
+                "-DOPENCV_ENABLE_NONFREE=OFF"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/opencv/opencv/archive/refs/tags/4.11.0.tar.gz",
+                    "sha256": "9a7c11f924eff5f8d8070e297b322ee68b9227e003fd600d4b8122198091665f"
+                }
+            ]
+        },
+        {
+            "name": "furicam",
+            "buildsystem": "cmake-ninja",
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_PREFIX_PATH=/app",
+                "-DOpenCV_INCLUDE_DIR=/app/include/opencv4",
+                "-DOpenCV_LIB_DIR=/app/lib",
+                "-DCMAKE_INSTALL_RPATH=/app/lib/host"
+            ],
+            "post-install": [
+                "mkdir -p /app/lib/host",
+                "cp -L /run/host/usr/lib/aarch64-linux-gnu/libhybris-common.so.1 /app/lib/host/ 2>/dev/null || true"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": ".."
+                }
+            ]
+        }
+    ]
+}

@@ -18,3 +18,5 @@ debian/files
 debian/*.substvars
 debian/*.debhelper.log
 debian/debhelper-build-stamp
+flatpak/downloads/
+None
