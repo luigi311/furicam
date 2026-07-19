@@ -837,9 +837,11 @@ bool CameraSession::buildSessionFromReaders(bool withEncoder, int targetFps)
     // saturates the ISP and starves the preview pipeline.
     if (targetFps > 0) {
         // Photo preview: let AE drop framerate in low light (HAL rounds up to
-        // nearest supported range).  Video/encoder sessions pin both ends for
-        // steady recording fps.
-        int32_t r[2] = { withEncoder ? targetFps : 1, targetFps };
+        // nearest supported range).  Video/encoder sessions get a lower floor so
+        // AE can lengthen exposure in the dark instead of maxing out at the ISO
+        // ceiling (961 on this HAL) and staying dark.  {15, targetFps} still
+        // records smooth-enough video while gaining ~2 stops of low-light headroom.
+        int32_t r[2] = { withEncoder ? 15 : 1, targetFps };
         ACaptureRequest_setEntry_i32(previewRequest_, ACAMERA_CONTROL_AE_TARGET_FPS_RANGE, 2, r);
     }
     applyControls(previewRequest_);
@@ -863,7 +865,9 @@ bool CameraSession::buildSessionFromReaders(bool withEncoder, int targetFps)
             return false;
         }
         if (targetFps > 0) {
-            int32_t r[2] = { targetFps, targetFps };
+            // Allow the frame rate to dip in low light so AE can lengthen exposure
+            // (this HAL's AE ISO ceiling is 961; a pinned 30fps stayed dark).
+            int32_t r[2] = { 15, targetFps };
             ACaptureRequest_setEntry_i32(recordRequest_, ACAMERA_CONTROL_AE_TARGET_FPS_RANGE, 2, r);
         }
         applyControls(recordRequest_);
@@ -1514,7 +1518,9 @@ bool CameraSession::startRecording(const std::string& path, int width, int heigh
         return false;
     }
 
-    int32_t fpsRange[2] = { fps, fps };
+    // Allow the frame rate to dip in low light so AE can lengthen exposure
+    // (this HAL's AE ISO ceiling is 961; a pinned fps stayed dark).
+    int32_t fpsRange[2] = { 15, fps };
     ACaptureRequest_setEntry_i32(recordRequest_, ACAMERA_CONTROL_AE_TARGET_FPS_RANGE, 2, fpsRange);
 
     activeSession_ = recordSession_;
