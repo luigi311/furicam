@@ -23,6 +23,7 @@
 #include "VideoEncoder.h"
 #include "Camera2NDK.h"
 #include "../hdrprocessor.h"
+#include "../pixelfilter.h"
 
 #include <QDateTime>
 #include <QTimer>
@@ -79,6 +80,9 @@ public:
         cropX_    = bridge->cropScaleX();
         cropY_    = bridge->cropScaleY();
         mirror_   = bridge->previewMirrored();
+        // Pull the pixel-art filter for the next render() (GUI thread set it).
+        renderer_.setPixelFilter(bridge->pixelGridWidth(), bridge->pixelPaletteRgb(),
+                                 bridge->pixelAutoLevels());
     }
 
     void render() override
@@ -894,6 +898,7 @@ void Camera2Bridge::onPhotoCaptured(const QString& path, bool ok)
         return;
     }
     if (ok) {
+        applyPixelFilterTo(path);
         fixExifDateTime(path);
         // DEBUG: log file size vs requested quality for calibration
         qDebug() << "[camera] JPEG quality:" << session_->jpegQuality()
@@ -1054,6 +1059,53 @@ void Camera2Bridge::setFlashMode(int mode)
         session_->setFlashMode(mode);
     }
     emit flashModeChanged();
+}
+
+// Set the pixel-art palette ("" = off).  Loads the palette colors, converts to
+// 0..1 RGB floats for the GLSL uniform, turns the grid on/off, and repaints so
+// the live preview reflects the change immediately.  The same palette is applied
+// to the saved JPEG on capture (see onPhotoCaptured).
+void Camera2Bridge::setPixelPalette(const QString &name)
+{
+    // "auto" = no-palette mode (uniform RGB-cube quantize); "" = off; otherwise a
+    // bundled palette id loaded from qrc.
+    const bool autoMode = (name == QLatin1String("auto"));
+    QVector<QColor> colors;
+    if (!name.isEmpty() && !autoMode)
+        colors = PixelFilter::loadPalette(name);
+    const bool active = autoMode || !colors.isEmpty();
+    {
+        QMutexLocker lk(&pixelMutex_);
+        pixelPalette_ = active ? name : QString();
+        pixelPaletteColors_ = colors;
+        pixelPaletteRgb_.clear();
+        for (const QColor &c : colors) {
+            pixelPaletteRgb_.push_back(float(c.redF()));
+            pixelPaletteRgb_.push_back(float(c.greenF()));
+            pixelPaletteRgb_.push_back(float(c.blueF()));
+        }
+    }
+    pixelGridWidth_.store(active ? float(kPixelGridWidth) : 0.0f);
+    pixelAutoLevels_.store(autoMode ? kPixelAutoLevels : 0);
+    emit pixelPaletteChanged();
+    update();   // repaint the preview with the new filter
+}
+
+// Apply the active pixel-art filter to a freshly saved photo so it matches the
+// live preview (WYSIWYG).  No-op when no palette is selected.  Uses the same
+// grid width as the preview.
+void Camera2Bridge::applyPixelFilterTo(const QString& path)
+{
+    QVector<QColor> colors;
+    {
+        QMutexLocker lk(&pixelMutex_);
+        colors = pixelPaletteColors_;
+    }
+    const int grid = int(pixelGridWidth_.load());
+    const int autoLevels = pixelAutoLevels_.load();
+    if (grid < 1 || (colors.isEmpty() && autoLevels < 2))
+        return;
+    PixelFilter::applyToFile(path, grid, colors, autoLevels);
 }
 
 void Camera2Bridge::setWhiteBalanceMode(int appMode)

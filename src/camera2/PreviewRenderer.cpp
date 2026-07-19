@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace furicam {
 
@@ -69,7 +70,42 @@ const char* kFrag =
     "precision mediump float;\n"
     "varying vec2 vTex;\n"
     "uniform samplerExternalOES uTex;\n"
-    "void main() { gl_FragColor = texture2D(uTex, vTex); }\n";
+    // Pixel-art filter (Pixless-style).  uPixelGrid = number of pixel blocks
+    // across the frame (0 disables the filter).  uPalette/uPaletteCount snap
+    // each block to the nearest of up to 16 palette colors; uAutoLevels > 1
+    // instead snaps each channel to a uniform RGB cube (no-palette mode).
+    "uniform float uPixelGrid;\n"
+    "uniform vec3 uPalette[16];\n"
+    "uniform int uPaletteCount;\n"
+    "uniform int uAutoLevels;\n"
+    "uniform vec2 uTexel;\n"   // 1/textureSize, to keep the grid square
+    "void main() {\n"
+    "    vec2 uv = vTex;\n"
+    "    bool on = uPixelGrid > 0.5 && (uPaletteCount > 0 || uAutoLevels > 1);\n"
+    "    if (on) {\n"
+    "        // Snap the sample point to the centre of its pixel block.\n"
+    "        vec2 grid = vec2(uPixelGrid, uPixelGrid * uTexel.x / uTexel.y);\n"
+    "        uv = (floor(uv * grid) + 0.5) / grid;\n"
+    "        vec3 c = texture2D(uTex, uv).rgb;\n"
+    "        if (uPaletteCount > 0) {\n"
+    "            // Nearest palette color (weighted, green-biased like the CPU path).\n"
+    "            float best = 1e9; vec3 bc = c;\n"
+    "            for (int i = 0; i < 16; ++i) {\n"
+    "                if (i >= uPaletteCount) break;\n"
+    "                vec3 d = c - uPalette[i];\n"
+    "                float dist = 3.0*d.r*d.r + 4.0*d.g*d.g + 2.0*d.b*d.b;\n"
+    "                if (dist < best) { best = dist; bc = uPalette[i]; }\n"
+    "            }\n"
+    "            gl_FragColor = vec4(bc, 1.0);\n"
+    "        } else {\n"
+    "            // No-palette: uniform RGB cube quantize.\n"
+    "            float lv = float(uAutoLevels - 1);\n"
+    "            gl_FragColor = vec4(floor(c * lv + 0.5) / lv, 1.0);\n"
+    "        }\n"
+    "    } else {\n"
+    "        gl_FragColor = texture2D(uTex, uv);\n"
+    "    }\n"
+    "}\n";
 
 template <typename T>
 T load(const char* name)
@@ -103,6 +139,7 @@ struct PreviewRenderer::Impl {
     void   (*glUniform1i)(GLint, GLint) = nullptr;
     void   (*glUniform1f)(GLint, GLfloat) = nullptr;
     void   (*glUniform2f)(GLint, GLfloat, GLfloat) = nullptr;
+    void   (*glUniform3fv)(GLint, GLsizei, const GLfloat*) = nullptr;
     void   (*glUniformMatrix2fv)(GLint, GLsizei, GLboolean, const GLfloat*) = nullptr;
     void   (*glActiveTexture)(GLenum) = nullptr;
     void   (*glEnableVertexAttribArray)(GLuint) = nullptr;
@@ -123,12 +160,20 @@ struct PreviewRenderer::Impl {
     AImage*     held      = nullptr;
     int         heldRotation = 0;   // orientation saved with the held frame
     bool        heldMirror   = false;
+    int         frameW = 0, frameH = 0;  // held frame dimensions (for square grid)
     GLuint      program   = 0;
     GLuint      texture   = 0;
     GLint       aPos = -1, aTex = -1, uTex = -1, uRot = -1, uCrop = -1, uMirror = -1;
+    GLint       uPixelGrid = -1, uPalette = -1, uPaletteCount = -1, uTexel = -1;
+    GLint       uAutoLevels = -1;
     bool        inited    = false;
     bool        ok        = false;
     bool        haveFrame = false;
+
+    // Pixel-art filter state (set from the GUI thread, consumed on render).
+    float              pixelGrid_ = 0.0f;   // 0 = off
+    int                autoLevels_ = 0;     // >1 = RGB-cube quantize (no palette)
+    std::vector<float> palette_;            // up to 16*3 floats (0..1 RGB)
 
     GLuint compile(GLenum type, const char* src)
     {
@@ -172,6 +217,7 @@ struct PreviewRenderer::Impl {
         glUniform1i         = load<void(*)(GLint, GLint)>("glUniform1i");
         glUniform1f         = load<void(*)(GLint, GLfloat)>("glUniform1f");
         glUniform2f         = load<void(*)(GLint, GLfloat, GLfloat)>("glUniform2f");
+        glUniform3fv        = load<void(*)(GLint, GLsizei, const GLfloat*)>("glUniform3fv");
         glUniformMatrix2fv  = load<void(*)(GLint, GLsizei, GLboolean, const GLfloat*)>("glUniformMatrix2fv");
         glActiveTexture     = load<void(*)(GLenum)>("glActiveTexture");
         glEnableVertexAttribArray  = load<void(*)(GLuint)>("glEnableVertexAttribArray");
@@ -220,6 +266,11 @@ struct PreviewRenderer::Impl {
         uRot = glGetUniformLocation(program, "uTexRot");
         uCrop = glGetUniformLocation(program, "uCrop");
         uMirror = glGetUniformLocation(program, "uMirror");
+        uPixelGrid = glGetUniformLocation(program, "uPixelGrid");
+        uPalette = glGetUniformLocation(program, "uPalette");
+        uPaletteCount = glGetUniformLocation(program, "uPaletteCount");
+        uTexel = glGetUniformLocation(program, "uTexel");
+        uAutoLevels = glGetUniformLocation(program, "uAutoLevels");
         glGenTextures(1, &texture);
         ok = true;
         return true;
@@ -232,6 +283,17 @@ PreviewRenderer::~PreviewRenderer()
 {
     cleanup();
     delete d_;
+}
+
+void PreviewRenderer::setPixelFilter(float gridWidth, const std::vector<float>& paletteRgb, int autoLevels)
+{
+    if (!d_)
+        return;
+    d_->pixelGrid_  = gridWidth;
+    d_->autoLevels_ = autoLevels;
+    d_->palette_    = paletteRgb;
+    if (d_->palette_.size() > 16 * 3)
+        d_->palette_.resize(16 * 3);
 }
 
 void PreviewRenderer::cleanup()
@@ -309,6 +371,8 @@ bool PreviewRenderer::render(AImageReader* reader, int viewW, int viewH, int rot
                     // its ORIGINAL orientation, avoiding the "flipped image".
                     d.heldRotation = rotationDeg;
                     d.heldMirror   = mirror;
+                    AImage_getWidth(img, &d.frameW);
+                    AImage_getHeight(img, &d.frameH);
                 }
             } else {
                 AImage_delete(img);
@@ -335,6 +399,23 @@ bool PreviewRenderer::render(AImageReader* reader, int viewW, int viewH, int rot
             d.glUniform2f(d.uCrop, cropX, cropY);
         if (d.uMirror >= 0)
             d.glUniform1f(d.uMirror, d.heldMirror ? -1.0f : 1.0f);
+
+        // Pixel-art filter uniforms.
+        const int palCount = (int)(d.palette_.size() / 3);
+        const bool filterOn = d.pixelGrid_ > 0.5f && (palCount > 0 || d.autoLevels_ > 1);
+        if (d.uPixelGrid >= 0)
+            d.glUniform1f(d.uPixelGrid, filterOn ? d.pixelGrid_ : 0.0f);
+        if (d.uPaletteCount >= 0)
+            d.glUniform1i(d.uPaletteCount, filterOn ? palCount : 0);
+        if (d.uAutoLevels >= 0)
+            d.glUniform1i(d.uAutoLevels, filterOn ? d.autoLevels_ : 0);
+        if (d.uPalette >= 0 && filterOn && palCount > 0)
+            d.glUniform3fv(d.uPalette, palCount, d.palette_.data());
+        if (d.uTexel >= 0)
+            d.glUniform2f(d.uTexel,
+                          d.frameW > 0 ? 1.0f / d.frameW : 0.0f,
+                          d.frameH > 0 ? 1.0f / d.frameH : 0.0f);
+
         d.glActiveTexture(GL_TEXTURE0);
         d.glBindTexture(GL_TEXTURE_EXTERNAL_OES, d.texture);
         d.glUniform1i(d.uTex, 0);

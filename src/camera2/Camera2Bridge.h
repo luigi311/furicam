@@ -20,8 +20,11 @@
 #include <QString>
 #include <QStringList>
 #include <QMutex>
+#include <QColor>
+#include <QVector>
 #include <atomic>
 #include <memory>
+#include <vector>
 
 // Forward declarations to keep NDK types out of QML/Qt headers.  The actual
 // types come from <camera/NdkCameraManager.h> et al. in the .cpp.
@@ -102,6 +105,10 @@ class Camera2Bridge
     // it's applied on startup and on every change (not only via a signal on tap).
     Q_PROPERTY(int     flashMode           READ flashMode  WRITE setFlashMode  NOTIFY flashModeChanged)
 
+    // Pixel-art filter palette ("" = off, else a bundled palette id like "oil-6").
+    // Live in the GLSL preview and applied to saved photos (WYSIWYG).
+    Q_PROPERTY(QString pixelPalette        READ pixelPalette WRITE setPixelPalette NOTIFY pixelPaletteChanged)
+
 public:
     explicit Camera2Bridge(QQuickItem* parent = nullptr);
     ~Camera2Bridge() override;
@@ -133,6 +140,8 @@ public:
     void    setHdrEnabled(bool on);
     void    setHdrSaveEv0(bool on) { if (hdrSaveEv0_.exchange(on) != on) emit hdrSaveEv0Changed(); }
     int     flashMode()           const { return flashMode_; }
+    QString pixelPalette()        const { QMutexLocker lk(&pixelMutex_); return pixelPalette_; }
+    void    setPixelPalette(const QString &name);
     QString lastPhotoPath()       const { QMutexLocker lk(&lastPhotoMutex_); return lastPhotoPath_; }
 
     // Accessed by the renderer on the render thread.  The renderer reads from
@@ -147,6 +156,10 @@ public:
     float         cropScaleY() const { return cropScaleY_.load(); }
     // Mirror the preview left-right for the front (selfie) camera.
     bool          previewMirrored() const { return lensFacingPref_.load() == 0; }
+    // Pixel-art filter, read on the render thread via synchronize().
+    float         pixelGridWidth() const { return pixelGridWidth_.load(); }
+    int           pixelAutoLevels() const { return pixelAutoLevels_.load(); }
+    std::vector<float> pixelPaletteRgb() const { QMutexLocker lk(&pixelMutex_); return pixelPaletteRgb_; }
 
     // ── QML API ─────────────────────────────────────────────────────────────
     // All Q_INVOKABLE methods may be called from the QML/JavaScript thread.
@@ -297,6 +310,7 @@ signals:
     void hdrBusyChanged();
     void hdrCapturingChanged();
     void flashModeChanged();
+    void pixelPaletteChanged();
 
     // One-shot signals for outcomes.
     void cameraError(const QString& message);
@@ -318,6 +332,7 @@ private:
     void onPhotoCaptured(const QString& path, bool ok);   // single + HDR-burst routing
     void doSingleCapture(const QString& outputPath);      // one still (after any precapture)
     void fixExifDateTime(const QString& path);            // shift UTC EXIF → local time
+    void applyPixelFilterTo(const QString& path);         // pixelate+palette a saved photo
     void beginAutoFlashCapture(const QString& outputPath, int attempt);  // poll AE then shoot
     // Poll AF (AF assist) then still-capture.  minDwellMs = min torch-on time;
     // settleMs = gap between torch-off and the flash firing; gen = AF-assist
@@ -395,6 +410,16 @@ private:
     QString        recordingPath_;
     mutable QMutex lastPhotoMutex_;
     bool           orientationMonitorStarted_ = false;
+
+    // Pixel-art filter state (GUI thread writes, render thread reads via synchronize()).
+    QString            pixelPalette_;              // "" = off
+    std::vector<float> pixelPaletteRgb_;           // up to 16*3 floats (0..1)
+    QVector<QColor>    pixelPaletteColors_;        // same palette for the CPU save path
+    std::atomic<float> pixelGridWidth_ {0.0f};     // blocks across the frame (0 = off)
+    std::atomic<int>   pixelAutoLevels_ {0};       // >1 = no-palette RGB-cube mode
+    mutable QMutex     pixelMutex_;
+    static constexpr int kPixelGridWidth = 192;    // blocks across when filter is on
+    static constexpr int kPixelAutoLevels = 6;     // RGB cube steps in no-palette mode
 };
 
 } // namespace furicam

@@ -16,6 +16,8 @@
 
 #include "Camera2NDK.h"   // AImageReader / AImage / AHardwareBuffer
 
+#include <vector>
+
 namespace furicam {
 
 class PreviewRenderer {
@@ -40,6 +42,11 @@ public:
     // instead of a stale frame.  Called when the reader pointer changes (camera
     // switch) so the old camera's last image never renders with the new mirror.
     void dropFrame();
+
+    // Pixel-art filter.  gridWidth = pixel blocks across the frame (0 = off).
+    // palette = up to 16 RGB triplets (0..1) to snap each block to; if empty and
+    // autoLevels > 1, each channel is quantized to an RGB cube (no-palette mode).
+    void setPixelFilter(float gridWidth, const std::vector<float>& paletteRgb, int autoLevels = 0);
 
     // Release GL + EGLImage resources.  Must be called with the GL context current.
     void cleanup();

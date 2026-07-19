@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/palettes/">
+        <file>oil-6.txt</file>
+        <file>digital-paper.txt</file>
+        <file>rust-gold-8.txt</file>
+        <file>ice-cream-gb.txt</file>
+        <file>twilight-5.txt</file>
+        <file>midnight-ablaze.txt</file>
+    </qresource>
+</RCC>

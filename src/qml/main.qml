@@ -216,6 +216,7 @@ ApplicationWindow {
         property real colorCorrectionSaturation: 1.20
         property bool hdrEnabled: false
         property bool hdrSaveEv0: false      // also keep the un-fused EV0 frame as a backup
+        property string pixelPalette: ""    // "" = off, else a bundled palette id (e.g. "oil-6")
         property bool rawEnabled: false     // RAW (DNG) capture alongside JPEG
         property bool manualExposureEnabled: false
         property int  manualIso: 200
@@ -2142,6 +2143,100 @@ ApplicationWindow {
                         implicitHeight: contentHeight
                         model: photoResCombo.popup.visible ? photoResCombo.delegateModel : null
                         currentIndex: photoResCombo.highlightedIndex
+                        ScrollIndicator.vertical: ScrollIndicator {}
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width - 32 * window.scalingRatio
+                height: 1
+                color: "#444"
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: "Pixel Filter"
+                color: "white"
+                font.pixelSize: 18 * window.scalingRatio
+                font.bold: true
+                leftPadding: 16 * window.scalingRatio
+                topPadding: 4 * window.scalingRatio
+            }
+
+            ComboBox {
+                id: pixelFilterCombo
+                width: parent.width - 32 * window.scalingRatio
+                anchors.horizontalCenter: parent.horizontalCenter
+                font.pixelSize: 15 * window.scalingRatio
+                // "" id = off.  ids match bundled palette files in :/palettes/.
+                model: [
+                    { label: "Off",             pid: "" },
+                    { label: "No Palette (Auto)", pid: "auto" },
+                    { label: "Oil (6)",         pid: "oil-6" },
+                    { label: "Digital Paper",   pid: "digital-paper" },
+                    { label: "Rust Gold (8)",   pid: "rust-gold-8" },
+                    { label: "Ice Cream (GB)",  pid: "ice-cream-gb" },
+                    { label: "Twilight (5)",    pid: "twilight-5" },
+                    { label: "Midnight Ablaze", pid: "midnight-ablaze" }
+                ]
+
+                Component.onCompleted: {
+                    for (var i = 0; i < model.length; i++) {
+                        if (model[i].pid === settings.pixelPalette) { currentIndex = i; return }
+                    }
+                    currentIndex = 0
+                }
+
+                onActivated: settings.pixelPalette = model[index].pid
+
+                contentItem: Text {
+                    leftPadding: 14 * window.scalingRatio
+                    rightPadding: 36 * window.scalingRatio
+                    text: pixelFilterCombo.model[pixelFilterCombo.currentIndex].label
+                    color: "white"
+                    font: pixelFilterCombo.font
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
+                background: Rectangle {
+                    implicitHeight: 46 * window.scalingRatio
+                    color: "#222"; border.color: "#555"; border.width: 1
+                    radius: 8 * window.scalingRatio
+                }
+                indicator: Text {
+                    x: pixelFilterCombo.width - width - 14 * window.scalingRatio
+                    y: (pixelFilterCombo.height - height) / 2
+                    text: "▾"; color: "#aaa"; font.pixelSize: 16 * window.scalingRatio
+                }
+                delegate: ItemDelegate {
+                    width: pixelFilterCombo.width
+                    height: 44 * window.scalingRatio
+                    highlighted: pixelFilterCombo.highlightedIndex === index
+                    contentItem: Text {
+                        leftPadding: 14 * window.scalingRatio
+                        text: modelData.label
+                        color: "white"
+                        font.pixelSize: 15 * window.scalingRatio
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        color: highlighted ? "#444"
+                             : (settings.pixelPalette === modelData.pid) ? "#333" : "#262626"
+                    }
+                }
+                popup: Popup {
+                    y: pixelFilterCombo.height + 2
+                    width: pixelFilterCombo.width
+                    implicitHeight: Math.min(pfList.contentHeight + 2, 360 * window.scalingRatio)
+                    padding: 1
+                    background: Rectangle { color: "#262626"; border.color: "#555"; radius: 8 * window.scalingRatio }
+                    contentItem: ListView {
+                        id: pfList
+                        clip: true
+                        implicitHeight: contentHeight
+                        model: pixelFilterCombo.popup.visible ? pixelFilterCombo.delegateModel : null
+                        currentIndex: pixelFilterCombo.highlightedIndex
                         ScrollIndicator.vertical: ScrollIndicator {}
                     }
                 }
