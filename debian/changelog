@@ -1,3 +1,23 @@
+furicam (1.5.0-1) unstable; urgency=medium
+
+  * Camera: add pixel-art (Pixless-style) photo filters with a live GLSL preview
+    (pixelate + palette quantize) and matching saved photos; six bundled lospec
+    palettes plus a no-palette auto mode, selectable in settings.  The preview
+    filter is disabled whenever the output bypasses it (RAW, HDR, video mode)
+  * Camera: flash overhaul — AF-assisted flash capture (torch lights for focus
+    before the pulse), a video-mode torch toggle, and a fix for the flash mode
+    not applying on startup.  Auto and On flash now share the same focus timing,
+    and tap-to-focus uses the assist light in both modes
+  * Video: native 16:9 preview stream so the viewfinder shows the full recording
+    FOV (was cropped tighter than the clip)
+  * Video: brighter low-light recording — let the frame rate drop in the dark
+    instead of pinning it (this HAL caps AE at ISO 961)
+  * Video: fix the record button not showing the stop-square (declarative state
+    now), and add an elapsed-time indicator while recording
+  * Build: experimental Flatpak manifest and configurable CMake install paths
+
+ -- nico359 <124350776+nico359@users.noreply.github.com>  Sun, 19 Jul 2026 16:40:00 +0200
+
 furicam (1.4.0-1) unstable; urgency=medium
 
   * Port the whole app to Qt6 (native build):
