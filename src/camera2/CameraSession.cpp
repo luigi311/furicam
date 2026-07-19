@@ -498,6 +498,11 @@ bool CameraSession::startPreview(int width, int height, int format, uint64_t usa
         return false;
     }
     ANativeWindow_acquire(readerWindow_);
+    // Save creation params so resizePreviewReader() can swap the reader size later.
+    previewFormat_ = format;
+    previewUsage_  = usage;
+    previewW_      = width;
+    previewH_      = height;
 
     camera_status_t cs = ACaptureSessionOutputContainer_create(&outputContainer_);
     if (cs == ACAMERA_OK)
@@ -727,6 +732,67 @@ void CameraSession::stopPreview()
 {
     closeSessionLocked();
     freeStreamResources();
+}
+
+// Recreate the preview reader at a new size and rebuild the session around it,
+// keeping the device open.  The reader teardown + rebuild mirrors startPreview()
+// but skips device open/close, so it's a ~200 ms switch, not a multi-second one.
+bool CameraSession::resizePreviewReader(int width, int height)
+{
+    if (!device_ || !reader_)
+        return false;
+    if (width == previewW_ && height == previewH_)
+        return true;   // already the right size
+    if (recording_)
+        return false;  // never swap the reader mid-clip
+
+    // If an encoder session is up, drop back to preview-only first — the reader
+    // swap rebuilds a clean preview-only session, and the caller re-enters video
+    // mode afterward (which re-adds the encoder surface).
+    const bool wasVideo = videoMode_;
+    if (wasVideo)
+        exitVideoMode();
+
+    // Tear down the capture session (closeSessionLocked only closes the session;
+    // the reader is freed explicitly below).  The JPEG reader + encoder survive.
+    closeSessionLocked();
+
+    // Recreate just the preview reader at the new size.
+    if (readerWindow_) { ANativeWindow_release(readerWindow_); readerWindow_ = nullptr; }
+    if (reader_)       { AImageReader_delete(reader_);         reader_ = nullptr; }
+    if (sessionOutput_){ ACaptureSessionOutput_free(sessionOutput_); sessionOutput_ = nullptr; }
+
+    media_status_t ms;
+    if (previewUsage_ != 0)
+        ms = AImageReader_newWithUsage(width, height, previewFormat_, previewUsage_, 4, &reader_);
+    else
+        ms = AImageReader_new(width, height, previewFormat_, 4, &reader_);
+    if (ms != AMEDIA_OK || !reader_) {
+        lastError_ = fmt("resizePreviewReader: AImageReader_new(%dx%d) failed (status %d)",
+                         width, height, (int)ms);
+        return false;
+    }
+    readerListener_.context         = this;
+    readerListener_.onImageAvailable = &CameraSession::onImageAvailable;
+    AImageReader_setImageListener(reader_, &readerListener_);
+    if (AImageReader_getWindow(reader_, &readerWindow_) != AMEDIA_OK || !readerWindow_) {
+        lastError_ = "resizePreviewReader: getWindow failed";
+        AImageReader_delete(reader_);
+        reader_ = nullptr;
+        return false;
+    }
+    ANativeWindow_acquire(readerWindow_);
+    previewW_ = width;
+    previewH_ = height;
+
+    // Rebuild a clean preview-only session around the new reader.  The caller
+    // re-enters video mode afterward if needed (re-adding the encoder surface).
+    if (!buildSessionFromReaders(/*withEncoder*/ false, previewFps_)) {
+        lastError_ = "resizePreviewReader: " + lastError_;
+        return false;
+    }
+    videoMode_ = false;
+    return true;
 }
 
 void CameraSession::freeSessionKeepReaders()

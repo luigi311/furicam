@@ -131,6 +131,14 @@ public:
     void stopPreview();
     bool isStreaming() const { return streaming_; }
 
+    // Recreate the preview AImageReader at a new size (e.g. 4:3 ↔ 16:9) and rebuild
+    // the capture session around it, keeping the camera device open (~200 ms vs a
+    // 2-4 s device reopen).  Used so the video viewfinder can run a native 16:9
+    // stream (full FOV, WYSIWYG with the recorded clip) instead of cropping 4:3.
+    // The currently-active mode (encoder on/off) is preserved.  Returns false and
+    // leaves the old reader running if the new size is rejected.
+    bool resizePreviewReader(int width, int height);
+
     // ── Still capture (Milestone 4) ──────────────────────────────────────────
     // One-shot JPEG to `path`.  Requires startPreview(withStill=true), which
     // adds a full-resolution JPEG output to the capture session.  The capture is
@@ -369,6 +377,12 @@ private:
     int64_t                              resultExposureNs_ = 0;
     bool                                 streaming_ = false;
     int                                  previewFps_ = 30;
+    // Preview reader creation params, saved so resizePreviewReader() can recreate
+    // the reader at a different size without a device reopen.
+    int                                  previewFormat_ = 0;
+    uint64_t                             previewUsage_  = 0;
+    int                                  previewW_      = 0;
+    int                                  previewH_      = 0;
 
     // Simultaneous preview+record: the same captureSession_ also carries the
     // encoder surface output, with a second (record) request that targets both

@@ -433,13 +433,17 @@ void Camera2Bridge::effectiveCaptureSize(int& cw, int& ch)
 // so ANY still ratio (1:1, 3:2, 16:9 …) maps corner-for-corner with the capture.
 void Camera2Bridge::pickPreviewStreamSize()
 {
-    // Always a 4:3 stream matching the full sensor FOV; recomputePreviewAspect()
-    // crops it to whatever aspect the current mode needs (4:3 still / 16:9 video).
-    // Keeping the reader size constant lets video-mode toggles reconfigure just
-    // the capture session (add/remove the encoder) instead of reopening the
-    // camera device — the difference between a ~200ms switch and a 2-4s one.
-    previewStreamW_ = 1280;
-    previewStreamH_ = 960;
+    // Match the preview stream to the mode: 4:3 full-sensor for photo, 16:9 for
+    // video (native — no GL crop, full vertical FOV).  Picking the right size up
+    // front avoids a reader resize on startup; mode toggles resize the reader
+    // in-place via applyVideoMode() → resizePreviewReader().
+    if (videoModeDesired_) {
+        previewStreamW_ = 1280;
+        previewStreamH_ = 720;
+    } else {
+        previewStreamW_ = 1280;
+        previewStreamH_ = 960;
+    }
 }
 
 // previewAspectRatio_ = the on-screen (post-rotation) w/h of the *still* aspect;
@@ -679,6 +683,24 @@ void Camera2Bridge::applyVideoMode()
     // streaming (re-applied from startCamera) and never reconfigures mid-record.
     if (!session_ || !session_->isStreaming() || recording_.load())
         return;
+
+    // Give video mode a native 16:9 preview stream (full FOV, WYSIWYG with the
+    // clip) and photo mode the 4:3 sensor stream.  resizePreviewReader() swaps
+    // just the reader + session (device stays open, ~200 ms).  It also rebuilds
+    // the session WITH the encoder surface when entering video, so after it the
+    // session is already in the right mode.
+    const int wantW = videoModeDesired_ ? 1280 : 1280;
+    const int wantH = videoModeDesired_ ? 720  : 960;
+    if (wantW != previewStreamW_ || wantH != previewStreamH_) {
+        if (session_->resizePreviewReader(wantW, wantH)) {
+            previewStreamW_ = wantW;
+            previewStreamH_ = wantH;
+            previewReader_  = session_->previewReader();  // reader pointer changed
+            recomputePreviewAspect();
+        }
+        // If the resize is rejected we fall back to the GL crop (previous behavior).
+    }
+
     if (videoModeDesired_ && !session_->isVideoMode())
         enterVideoMode();   // bridge's — applies videoW_/videoH_ (NOT session_->enterVideoMode(), which defaults to 1080p)
     else if (!videoModeDesired_ && session_->isVideoMode())
