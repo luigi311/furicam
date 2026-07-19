@@ -9,7 +9,7 @@ I decided not to do an obvious fork and rename it since these changes will most 
 
 Licensed under GPL-2.0.
 
-# Enhancements so far
+## Enhancements so far
 
 - HDR Photography (uses Mertens fusion with OpenCV)
 - Added option to adjust resolution (megapixel)
@@ -25,8 +25,9 @@ Licensed under GPL-2.0.
 - Added post processing options (RGB channels and saturation) - red was slightly reduced by default due to the FLX1s but does not seem to be an issue anymore
 - Switching between photo and video mode also switches aspect ratio now
 - Major improvements to the built-in gallery: Double tap to zoom, smooth swiping between pictures, etc.
+- Pixel-art filters (was requested)
 
-# To be improved
+## To be improved
 
 - Manual focus
 - Tap to focus seems to ignore where the tap was
@@ -137,6 +138,33 @@ but lacks a proper dev package. `dpkg-shlibdeps` still resolves the runtime
 `Depends` correctly (it picks `libqt6gui6-gles`), so the resulting `.deb`
 installs and upgrades cleanly via apt.
 
-# AI Disclosure 
+## AI Disclosure 
 
-This application was built with the assistance of AI (Mostly Claude and DeepSeek inside Copilot CLI).
+This application was built with the assistance of AI (Mostly Claude, DeepSeek and Kimi inside Copilot CLI).
+
+## Credits
+
+- Obviously: https://github.com/FuriLabs/furios-camera
+- Some inspiration regarding the flash and initial HDR logic (among others): https://sourceforge.net/p/opencamera/code/ci/master/tree
+- Initial inspiration for the requested pixel-art filters: https://github.com/cnmoro/pixel-camera-simulator
+- [Spollard](https://github.com/spollard): Did basically the whole camera2 implementation
+- [Luigi311](https://github.com/luigi311): Made some significant improvements, most notably to the HDR mode
+
+#### Palette credits
+
+The color palettes in this directory were collected from the
+[lospec palette list](https://lospec.com/palette-list) and are used here for the
+pixel-art ("Pixless"-style) photo filter.  Each palette is credited to its
+creator on lospec:
+
+| File                  | Palette        | Author           | Source |
+|-----------------------|----------------|------------------|--------|
+| `oil-6.txt`           | Oil 6          | GrafxKid        | https://lospec.com/palette-list/oil-6 |
+| `digital-paper.txt`   | Digital Paper  | Snurly           | https://lospec.com/palette-list/digital-paper |
+| `rust-gold-8.txt`     | Rust Gold 8    | Trigo Mathmancer | https://lospec.com/palette-list/rust-gold-8 |
+| `ice-cream-gb.txt`    | Ice Cream GB   | Kerrie Lake      | https://lospec.com/palette-list/ice-cream-gb |
+| `twilight-5.txt`      | Twilight 5     | Star             | https://lospec.com/palette-list/twilight-5 |
+| `midnight-ablaze.txt` | Midnight ablaze| Inkpendude       | https://lospec.com/palette-list/midnight-ablaze |
+
+If you are one of these authors and would prefer your palette not be bundled
+here, please open an issue and it will be removed.
