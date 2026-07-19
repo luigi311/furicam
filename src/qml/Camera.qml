@@ -458,9 +458,9 @@ Item {
         hdrSaveEv0: settings.hdrSaveEv0   // also keep the un-fused EV0 baseline frame
         // Pixel-art filter palette ("" = off) — live in the GLSL preview and
         // applied to the saved photo (WYSIWYG).  Forced off while RAW or HDR is
-        // enabled: those outputs bypass the filter, so a filtered preview would
-        // misrepresent what gets saved.
-        pixelPalette: (settings.rawEnabled || settings.hdrEnabled) ? "" : settings.pixelPalette
+        // enabled or in video mode: those outputs bypass the filter, so a filtered
+        // preview would misrepresent what gets saved.
+        pixelPalette: (settings.rawEnabled || settings.hdrEnabled || cam2.videoMode) ? "" : settings.pixelPalette
         // Flash mode tracks the GUI setting reactively (applied on startup + every
         // change), mapping to the engine's 0=off/1=on/2=auto/3=torch.
         flashMode: (settings.flashMode === window.flashOn) ? 1
