@@ -387,6 +387,67 @@ ApplicationWindow {
         }
     }
 
+    // Recording elapsed-time indicator (top-centre), shown only while recording.
+    Rectangle {
+        id: recordingIndicator
+        visible: window.videoCaptured
+        anchors.top: parent.top
+        anchors.topMargin: 14 * window.scalingRatio
+        anchors.horizontalCenter: parent.horizontalCenter
+        radius: 8 * window.scalingRatio
+        color: "#66000000"
+        width: recRow.width + 20 * window.scalingRatio
+        height: recRow.height + 8 * window.scalingRatio
+        z: 10
+
+        property int elapsedSecs: 0
+
+        Row {
+            id: recRow
+            anchors.centerIn: parent
+            spacing: 8 * window.scalingRatio
+
+            Rectangle {
+                width: 10 * window.scalingRatio
+                height: 10 * window.scalingRatio
+                radius: 5 * window.scalingRatio
+                color: "red"
+                anchors.verticalCenter: parent.verticalCenter
+
+                SequentialAnimation on opacity {
+                    running: recordingIndicator.visible
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.2; duration: 800 }
+                    NumberAnimation { to: 1.0; duration: 800 }
+                }
+            }
+
+            Text {
+                text: {
+                    var s = recordingIndicator.elapsedSecs
+                    var m = Math.floor(s / 60)
+                    var h = Math.floor(m / 60)
+                    s = s % 60; m = m % 60
+                    var mm = (m < 10 ? "0" : "") + m
+                    var ss = (s < 10 ? "0" : "") + s
+                    return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss
+                }
+                color: "white"
+                font.pixelSize: 16 * window.scalingRatio
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        Timer {
+            interval: 1000
+            running: window.videoCaptured
+            repeat: true
+            onRunningChanged: if (running) recordingIndicator.elapsedSecs = 0
+            onTriggered: recordingIndicator.elapsedSecs++
+        }
+    }
+
     SoundEffect {
         id: sound
         source: "sounds/camera-shutter.wav"
@@ -1373,81 +1434,31 @@ ApplicationWindow {
                                 width: height
                                 color: "red"
                                 radius: videoBtnFrame.radius
-                                visible: true
+                                // Declarative: shown unless recording.  Behavior
+                                // animates the shrink/fade whenever videoCaptured flips,
+                                // so it always matches the true recording state.
+                                visible: opacity > 0
+                                opacity: window.videoCaptured ? 0 : 1
+                                scale: window.videoCaptured ? 0 : 1
 
-                                ParallelAnimation {
-                                    id: redCircleAnimation
-
-                                    PropertyAnimation {
-                                        target: redCircle
-                                        property: "opacity"
-                                        from: !window.videoCaptured ? 1.0 : 0
-                                        to: window.videoCaptured ? 1.0 : 0
-                                        duration: 400
-                                    }
-
-                                    PropertyAnimation {
-                                        target: redCircle
-                                        property: "width"
-                                        from: !window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        to: window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        duration: 400
-                                    }
-
-                                    PropertyAnimation {
-                                        target: redCircle
-                                        property: "height"
-                                        from: !window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        to: window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        duration: 400
-                                    }
-
-                                    onStopped: {
-                                        redCircle.visible = !window.videoCaptured
-                                    }
-                                }
+                                Behavior on opacity { NumberAnimation { duration: 300 } }
+                                Behavior on scale   { NumberAnimation { duration: 300 } }
                             }
 
                             Rectangle {
                                 id: blackSquare
                                 anchors.centerIn: parent
-                                visible: false
                                 height: videoBtnFrame.height * 0.5
                                 width: height
                                 radius: 6 * window.scalingRatio
                                 color: "black"
+                                // Shown while recording; grows/fades in declaratively.
+                                visible: opacity > 0
+                                opacity: window.videoCaptured ? 1 : 0
+                                scale: window.videoCaptured ? 1 : 0
 
-                                ParallelAnimation {
-                                    id: blackSquareAnimation
-
-                                    PropertyAnimation {
-                                        target: blackSquare
-                                        property: "opacity"
-                                        from: window.videoCaptured ? 1.0 : 0
-                                        to: !window.videoCaptured ? 1.0 : 0
-                                        duration: 400
-                                    }
-
-                                    PropertyAnimation {
-                                        target: blackSquare
-                                        property: "width"
-                                        from: window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        to: !window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        duration: 400
-                                    }
-
-                                    PropertyAnimation {
-                                        target: blackSquare
-                                        property: "height"
-                                        from: window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        to: !window.videoCaptured ? videoBtnFrame.height * 0.5 : 0
-                                        duration: 400
-                                    }
-
-                                    onStopped: {
-                                        blackSquare.visible = window.videoCaptured
-                                    }
-                                }
+                                Behavior on opacity { NumberAnimation { duration: 300 } }
+                                Behavior on scale   { NumberAnimation { duration: 300 } }
                             }
 
                             text: preCaptureTimer.running ? countDown : ""
@@ -1464,8 +1475,6 @@ ApplicationWindow {
                             }
 
                             onClicked: {
-                                blackSquareAnimation.start()
-                                redCircleAnimation.start()
                                 window.cameraTakeVideo()
                             }
 

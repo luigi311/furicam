@@ -511,14 +511,14 @@ void Camera2Bridge::initCamera()
 
 // ── M4–M7 entry points: stubbed until their milestones ───────────────────────
 
-void Camera2Bridge::startRecording(const QString& outputPath)
+bool Camera2Bridge::startRecording(const QString& outputPath)
 {
     if (!session_ || !session_->isOpen()) {
         emit cameraError(QStringLiteral("startRecording: camera not open"));
-        return;
+        return false;
     }
     if (recording_.load())
-        return;
+        return false;
     // Tag this clip with how the phone is held as recording starts (preview stays
     // portrait); the session applies it to the MP4 rotation hint per clip.
     session_->setDeviceRotation(queryDeviceRotation());
@@ -533,14 +533,15 @@ void Camera2Bridge::startRecording(const QString& outputPath)
     // that displaces the preview, so its reader becomes stale.
     if (!session_->isVideoMode())
         previewReader_ = nullptr;
-    if (!session_->startRecording(recordingPath_.toStdString(), 1920, 1080,
-                                    30, 20000000, true,
+    if (!session_->startRecording(recordingPath_.toStdString(), videoW_, videoH_,
+                                    30, videoBitrate_ * 1000, true,
                                     deviceRotation_.load())) {
         emit cameraError(QString::fromStdString(session_->lastError()));
-        return;
+        return false;
     }
     recording_.store(true);
     emit recordingChanged();
+    return true;
 }
 
 void Camera2Bridge::stopRecording()

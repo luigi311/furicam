@@ -191,7 +191,9 @@ public:
     // extension).  If outputPath is empty, uses defaultOutputPath().  Emits
     // recordingChanged(true) once the AMediaCodec encoder is producing
     // hardware (HW) H.264 buffers and AMediaMuxer is writing to disk.
-    Q_INVOKABLE void startRecording(const QString& outputPath = QString());
+    // Returns true if recording actually started (false on error / already
+    // recording), so the GUI only shows the stop-square on a real start.
+    Q_INVOKABLE bool startRecording(const QString& outputPath = QString());
 
     // Stop recording.  Drains the encoder, finalises the MPEG-4 Part 14 (MP4)
     // container, emits recordingSaved(path) on success.

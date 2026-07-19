@@ -334,8 +334,10 @@ Item {
             // Lock in the current size right before recording (also covers a
             // resolution change made while already in video mode).
             cam2.setVideoResolution(settings.videoResWidth, settings.videoResHeight)
-            cam2.startRecording("")   // attaches the pre-warmed mic, finalizes an MP4
-            window.videoCaptured = true
+            // Only show the stop-square when recording actually started — a failed
+            // start (mic/encoder) would otherwise leave the button stuck.
+            if (cam2.startRecording(""))
+                window.videoCaptured = true
         } else {
             cam2.stopRecording()
             window.videoCaptured = false
