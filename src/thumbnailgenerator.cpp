@@ -33,6 +33,15 @@ void ThumbnailGenerator::setVideoSource(const QString &videoSource) {
         return;
     }
 
+    // Skip files written in the last couple of seconds: an MP4 still being
+    // recorded has no moov atom yet, so ffmpeg exits 183 and the failure is
+    // wasted work (and noisy).  The next gallery open re-probes and succeeds.
+    const QFileInfo fi(path);
+    if (fi.lastModified().msecsTo(QDateTime::currentDateTime()) < 2000) {
+        qDebug() << "ThumbnailGenerator: skipping very recent (likely still recording) file:" << path;
+        return;
+    }
+
     // Only one extraction at a time; drop any in-flight job (e.g. when the user
     // swipes quickly between videos).
     if (m_proc) {
