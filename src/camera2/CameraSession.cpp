@@ -1047,9 +1047,14 @@ void CameraSession::onAnalysisImageAvailable(void* ctx, AImageReader* reader)
         return;
     // Drain every frame (keep buffers flowing); hand the luma plane to the
     // callback (e.g. the bridge's QR decoder) when one is set.
+    std::function<void(const uint8_t*, int, int, int)> cb;
+    {
+        std::lock_guard<std::mutex> lk(self->cbMutex_);
+        cb = self->analysisCallback_;
+    }
     AImage* img = nullptr;
     while (AImageReader_acquireNextImage(reader, &img) == AMEDIA_OK && img) {
-        if (self->analysisCallback_) {
+        if (cb) {
             int32_t  w = 0, h = 0, stride = 0;
             uint8_t* y = nullptr;
             int      len = 0;
@@ -1057,7 +1062,7 @@ void CameraSession::onAnalysisImageAvailable(void* ctx, AImageReader* reader)
             AImage_getHeight(img, &h);
             if (AImage_getPlaneData(img, 0, &y, &len) == AMEDIA_OK && y
                 && AImage_getPlaneRowStride(img, 0, &stride) == AMEDIA_OK)
-                self->analysisCallback_(y, w, h, stride);
+                cb(y, w, h, stride);
         }
         AImage_delete(img);
         img = nullptr;
@@ -1072,8 +1077,13 @@ void CameraSession::onImageAvailable(void* ctx, AImageReader* reader)
     self->callbackCount_.fetch_add(1, std::memory_order_relaxed);
     // Render-pull mode: a consumer (the renderer) acquires frames itself, so we
     // must NOT drain here — just notify it that a new frame is ready.
-    if (self->frameCallback_) {
-        self->frameCallback_();
+    std::function<void()> frameCb;
+    {
+        std::lock_guard<std::mutex> lk(self->cbMutex_);
+        frameCb = self->frameCallback_;
+    }
+    if (frameCb) {
+        frameCb();
         return;
     }
     // Otherwise (the probe) drain every available frame so buffers never back up.
@@ -1178,8 +1188,13 @@ void CameraSession::onCaptureFailed(void* ctx, ACameraCaptureSession* /*session*
     }
     // Keep the queue honest so the NEXT photo can't be written to this stale
     // path; surface the failure to the UI via the normal photo callback.
-    if (self->photoCallback_)
-        self->photoCallback_(path, false);
+    std::function<void(const std::string&, bool)> cb;
+    {
+        std::lock_guard<std::mutex> lk(self->cbMutex_);
+        cb = self->photoCallback_;
+    }
+    if (cb)
+        cb(path, false);
 }
 
 bool CameraSession::maxJpegSize(int* w, int* h) const
@@ -1509,8 +1524,13 @@ void CameraSession::onJpegImageAvailable(void* ctx, AImageReader* reader)
     AImage_delete(img);
 
     if (path.empty() || bytes.empty()) {
-        if (self->photoCallback_)
-            self->photoCallback_(path, false);
+        std::function<void(const std::string&, bool)> cb;
+        {
+            std::lock_guard<std::mutex> lk(self->cbMutex_);
+            cb = self->photoCallback_;
+        }
+        if (cb)
+            cb(path, false);
         return;
     }
     self->enqueueWrite([self, path, bytes = std::move(bytes)]() {
@@ -1520,8 +1540,13 @@ void CameraSession::onJpegImageAvailable(void* ctx, AImageReader* reader)
             std::fclose(f);
         }
         self->log(fmt("photo saved: %s (%d bytes)", path.c_str(), (int)bytes.size()));
-        if (self->photoCallback_)
-            self->photoCallback_(path, ok);
+        std::function<void(const std::string&, bool)> cb;
+        {
+            std::lock_guard<std::mutex> lk(self->cbMutex_);
+            cb = self->photoCallback_;
+        }
+        if (cb)
+            cb(path, ok);
     });
 }
 

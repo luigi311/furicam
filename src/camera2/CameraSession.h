@@ -158,6 +158,7 @@ public:
                       const std::vector<int>& evBrackets = {});
     void setPhotoCallback(std::function<void(const std::string& path, bool ok)> cb)
     {
+        std::lock_guard<std::mutex> lk(cbMutex_);
         photoCallback_ = std::move(cb);
     }
 
@@ -170,6 +171,7 @@ public:
     // analysis stream exists only while previewing (photo mode), not recording.
     void setAnalysisCallback(std::function<void(const uint8_t* y, int width, int height, int rowStride)> cb)
     {
+        std::lock_guard<std::mutex> lk(cbMutex_);
         analysisCallback_ = std::move(cb);
     }
 
@@ -288,7 +290,11 @@ public:
     // set, the listener does NOT drain/count frames — the callee is expected to
     // pull them (render-pull mode, e.g. Camera2Bridge schedules a GL repaint).
     // When unset (the probe), the listener drains and counts (frame stats).
-    void setFrameCallback(std::function<void()> cb) { frameCallback_ = std::move(cb); }
+    void setFrameCallback(std::function<void()> cb)
+    {
+        std::lock_guard<std::mutex> lk(cbMutex_);
+        frameCallback_ = std::move(cb);
+    }
 
     // Called (on a binder thread) when the HAL declares the device dead
     // (onDeviceDisconnected / onDeviceError).  After either callback the device
@@ -432,6 +438,10 @@ private:
 
     std::mutex                 photoMutex_;
     std::deque<std::string>    pendingPhotoPaths_;       // queue for burst — pop front on each callback
+    // Guards frameCallback_/analysisCallback_/photoCallback_: the setters run
+    // on the UI thread while binder threads read+call them — assigning a
+    // std::function concurrently with invoking it is UB.
+    mutable std::mutex               cbMutex_;
     std::function<void(const std::string&, bool)> photoCallback_;
     std::function<void(const std::string&)>      deviceDeadCallback_;
     std::atomic<bool>                            deviceDead_{false};
