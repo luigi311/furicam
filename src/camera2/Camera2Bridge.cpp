@@ -1044,7 +1044,22 @@ void Camera2Bridge::setFocusPoint(float x, float y)
 {
     if (!session_)
         return;
-    session_->setFocusPoint(x, y);
+    // The tap arrives view-normalized; the session maps its input straight onto
+    // the sensor's active array.  Convert view → sensor: the exact inverse of
+    // the sensor → view mapping proven in qrDecode() (rotate by +previewRotation
+    // about the centre, then apply the still-aspect crop), plus an x-flip when
+    // the front-camera mirror is active.
+    const double rad = previewRotation() * 3.14159265358979 / 180.0;
+    const double cc = std::cos(rad), ss = std::sin(rad);
+    const double nx = (double)x - 0.5, ny = (double)y - 0.5;
+    double sx = (cc * nx - ss * ny);
+    double sy = (ss * nx + cc * ny);
+    const double cx = cropScaleX_.load(), cy = cropScaleY_.load();
+    sx = sx * (cx > 0 ? cx : 1.0) + 0.5;
+    sy = sy * (cy > 0 ? cy : 1.0) + 0.5;
+    if (previewMirrored())
+        sx = 1.0 - sx;
+    session_->setFocusPoint((float)sx, (float)sy);
     // If the tap lit the AF-assist torch (flash ON/AUTO), cut it once focus locks
     // (or after a timeout) — tap-to-focus isn't followed by a capture that would
     // otherwise drop it.
