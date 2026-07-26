@@ -25,7 +25,6 @@ public:
     ~FileManager();
 // ***************** File Management *****************
     Q_INVOKABLE void createDirectory(const QString &path);
-    Q_INVOKABLE void removeGStreamerCacheDirectory();
     Q_INVOKABLE QString getConfigFile();
     Q_INVOKABLE bool deleteImage(const QString &fileUrl);
     Q_INVOKABLE QString getFileSize(const QString &fileUrl);
@@ -46,9 +45,6 @@ public:
     Q_INVOKABLE QString focalLength(const QString &fileUrl);
     Q_INVOKABLE bool getFlash(const QString &fileUrl);
 // ***************** Video Metadata *****************
-    Q_INVOKABLE void getVideoMetadata(const QString &fileUrl);
-    Q_INVOKABLE QString runMkvInfo(const QString &fileUrl);
-    Q_INVOKABLE void finalizeMkv(const QString &fileUrl);
     Q_INVOKABLE QString getVideoDate(const QString &fileUrl);
     // Asynchronous variant: spawns ffprobe without blocking the UI thread and
     // emits videoDateReady() when done.  The gallery uses this so paging between
@@ -56,9 +52,6 @@ public:
     Q_INVOKABLE void requestVideoDate(const QString &fileUrl);
     Q_INVOKABLE int getVideoRotation(const QString &fileUrl);
     Q_INVOKABLE QString getVideoDimensions(const QString &fileUrl);
-    Q_INVOKABLE QString getDuration(const QString &fileUrl);
-    Q_INVOKABLE QString getMultiplexingApplication(const QString &fileUrl);
-    Q_INVOKABLE QString getWritingApplication(const QString &fileUrl);
     Q_INVOKABLE QString getDocumentType(const QString &fileUrl);
     Q_INVOKABLE QString getCodecId(const QString &fileUrl);
     // Asynchronous combined probe: one ffprobe process gathers container type,

@@ -17,9 +17,7 @@
 #include "singleinstance.h"
 #include "appcontroller.h"
 #include "accelreader.h"
-#include "whitebalancecontroller.h"
 #include "hdrprocessor.h"
-#include "meteringcontroller.h"
 #ifdef FURICAM_CAMERA2
 #include "camera2/Camera2Bridge.h"
 #endif
@@ -40,9 +38,7 @@ int main(int argc, char *argv[])
     }
 
     qmlRegisterType<AccelReader>("FuriCam", 1, 0, "AccelReader");
-    qmlRegisterType<WhiteBalanceController>("FuriCam", 1, 0, "WhiteBalanceController");
     qmlRegisterType<HdrProcessor>("FuriCam", 1, 0, "HdrProcessor");
-    qmlRegisterType<MeteringController>("FuriCam", 1, 0, "MeteringController");
 #ifdef FURICAM_CAMERA2
     qmlRegisterType<furicam::Camera2Bridge>("FuriCam", 1, 0, "Camera2Bridge");
 #endif

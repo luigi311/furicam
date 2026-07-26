@@ -51,23 +51,6 @@ void FileManager::createDirectory(const QString &path) {
     }
 }
 
-void FileManager::removeGStreamerCacheDirectory() {
-    QString homePath = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
-    QString filePath = homePath + "/.cache/gstreamer-1.0/registry.aarch64.bin";
-    QDir dir(homePath + "/.cache/gstreamer-1.0/");
-
-    QFile file(filePath);
-
-    if (file.exists()) {
-         QFileInfo fileInfo(file);
-         QDateTime lastModified = fileInfo.lastModified();
-
-         if (lastModified.addDays(7) < QDateTime::currentDateTime()) {
-             dir.removeRecursively();
-         }
-    }
-}
-
 QString FileManager::getConfigFile() {
     QFileInfo primaryConfig("/usr/lib/furios/device/furicam.conf");
     QFileInfo secodaryConfig("/etc/furicam.conf");
@@ -479,125 +462,6 @@ bool FileManager::getFlash(const QString &fileUrl) {
 
 // ***************** Video Metadata *****************
 
-void FileManager::getVideoMetadata(const QString &fileUrl) {
-    QStringList metadataList;
-    qDebug() << "Requesting Date for Video";
-
-    QString path = fileUrl;
-    int colonIndex = path.indexOf(':');
-
-    if (colonIndex != -1) {
-        path.remove(0, colonIndex + 1);
-    }
-
-    QProcess process;
-    process.setProgram("mkvinfo");
-    process.setArguments(QStringList() << path);
-
-    process.start();
-    if (!process.waitForFinished()) {
-        qDebug() << "Error executing mkvinfo:" << process.errorString();
-        return;
-    }
-
-    QString output = process.readAllStandardOutput();
-    QString errorOutput = process.readAllStandardError();
-
-    if (!errorOutput.isEmpty()) {
-        qDebug() << "mkvinfo error output:" << errorOutput;
-    }
-
-    qDebug() << "Full mkvinfo output:" << output;
-
-    QStringList outputLines = output.split('\n');
-    for (const QString &line : outputLines) {
-        if (line.contains("Duration") || line.contains("Title") ||
-            line.contains("Muxing application") || line.contains("Writing application") ||
-            line.contains("Track number") || line.contains("Track type") ||
-            line.contains("Codec ID") || line.contains("Pixel width") ||
-            line.contains("Pixel height") || line.contains("Channels") ||
-            line.contains("Sampling frequency") || line.contains("Date")) {
-            metadataList << line.trimmed();
-        }
-    }
-
-    qDebug() << "Metadata Tags:";
-    for (const QString &info : metadataList) {
-        qDebug() << info;
-    }
-}
-
-QString FileManager::runMkvInfo(const QString &fileUrl) {
-    QString path = fileUrl;
-    int colonIndex = path.indexOf(':');
-    if (colonIndex != -1) {
-        path.remove(0, colonIndex + 1);
-    }
-
-    QProcess process;
-    process.setProgram("mkvinfo");
-    process.setArguments(QStringList() << path);
-    process.start();
-    if (!process.waitForFinished()) {
-        qDebug() << "Error executing mkvinfo:" << process.errorString();
-        return "";
-    }
-
-    QString output = process.readAllStandardOutput();
-    QString errorOutput = process.readAllStandardError();
-    if (!errorOutput.isEmpty()) {
-        qDebug() << "mkvinfo error output:" << errorOutput;
-    }
-
-    return output;
-}
-
-// Re-mux the file through mkvmerge so the EBML header gets a proper
-// Duration / SeekHead / Cues. matroskamux in our recording pipeline never
-// receives EOS on stop, so the on-disk file is left unfinalized and players
-// reject it. mkvmerge rebuilds the container in place.
-void FileManager::finalizeMkv(const QString &fileUrl) {
-    QString path = fileUrl;
-    int colonIndex = path.indexOf(':');
-    if (colonIndex != -1) {
-        path.remove(0, colonIndex + 1);
-    }
-
-    if (!QFile::exists(path)) {
-        qDebug() << "finalizeMkv: source missing:" << path;
-        return;
-    }
-
-    QString tmpPath = path + ".finalize.tmp";
-    QFile::remove(tmpPath);
-
-    QProcess process;
-    process.setProgram("mkvmerge");
-    process.setArguments(QStringList() << "-q" << "-o" << tmpPath << path);
-    process.start();
-    if (!process.waitForFinished(60000)) {
-        qDebug() << "finalizeMkv: mkvmerge timed out for" << path;
-        process.kill();
-        QFile::remove(tmpPath);
-        return;
-    }
-
-    int code = process.exitCode();
-    // mkvmerge: 0 = success, 1 = success with warnings, 2 = error.
-    if (code > 1 || !QFile::exists(tmpPath)) {
-        qDebug() << "finalizeMkv: mkvmerge failed for" << path
-                 << "exit=" << code
-                 << "stderr=" << process.readAllStandardError();
-        QFile::remove(tmpPath);
-        return;
-    }
-
-    QFile::remove(path);
-    if (!QFile::rename(tmpPath, path)) {
-        qDebug() << "finalizeMkv: rename failed" << tmpPath << "->" << path;
-    }
-}
-
 QString FileManager::formatVideoDate(const QString &probeOut, const QString &path) {
     QDateTime dateTime;
     const QString out = probeOut.trimmed();
@@ -711,44 +575,6 @@ QString FileManager::getVideoDimensions(const QString &fileUrl) {
         }
     }
     return QString("Dimensions not found.");
-}
-
-QString FileManager::getDuration(const QString &fileUrl) {
-    QString output = runMkvInfo(fileUrl);
-    QStringList outputLines = output.split('\n');
-    for (const QString &line : outputLines) {
-        if (line.contains("Duration")) {
-            QString string = QString( "Duration: ") + line.trimmed();
-            qDebug() << string;
-            return string;
-        }
-    }
-    return QString("Duration not found.");
-}
-
-QString FileManager::getMultiplexingApplication(const QString &fileUrl) {
-    QString output = runMkvInfo(fileUrl);
-    QStringList outputLines = output.split('\n');
-    for (const QString &line : outputLines) {
-        if (line.contains("Multiplexing application:")) {
-            QString multiplexingApplication = line.split(':').last().trimmed();
-            return QString("%1").arg(multiplexingApplication);
-        }
-    }
-    return QString("Multiplexing Application: Not found");
-}
-
-QString FileManager::getWritingApplication(const QString &fileUrl) {
-    QString output = runMkvInfo(fileUrl);
-    QStringList outputLines = output.split('\n');
-    for (const QString &line : outputLines) {
-        if (line.contains("Writing application")) {
-            QString string =  line.trimmed();
-            return string;
-        }
-    }
-    qDebug() << "Writing application not found.";
-    return "";
 }
 
 QString FileManager::getDocumentType(const QString &fileUrl) {

@@ -67,11 +67,6 @@ Item {
     // Emitted after a video recording is finalized and ready for the gallery.
     signal recordingSaved()
 
-    // Kept instantiated for compatibility; HDR/metering are simplified for the
-    // Camera2 path (single capture).  TODO: HDR via Camera2 exposure bracketing.
-    HdrProcessor      { id: hdrProcessor }
-    MeteringController { id: meteringController }
-
     ListModel { id: resModel }
 
     function setColorTemperature(temp) { colorTemperature = temp }

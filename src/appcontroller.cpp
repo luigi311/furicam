@@ -13,7 +13,6 @@
 
 #include <gio/gio.h>
 #include "appcontroller.h"
-#include "flashlightcontroller.h"
 #include "filemanager.h"
 #include "thumbnailgenerator.h"
 #include "qrcodehandler.h"
@@ -25,7 +24,7 @@
 
 AppController::AppController(QApplication& app)
     : m_app(app), m_engine(nullptr), m_window(nullptr),
-      m_flashlightController(nullptr), m_fileManager(nullptr),
+      m_fileManager(nullptr),
       m_thumbnailGenerator(nullptr), m_qrCodeHandler(nullptr),
       m_hidden_window(false), m_lastOrientationState(false)
 {
@@ -36,7 +35,6 @@ AppController::AppController(QApplication& app)
 AppController::~AppController()
 {
     delete m_engine;
-    delete m_flashlightController;
     delete m_fileManager;
     delete m_thumbnailGenerator;
     delete m_qrCodeHandler;
@@ -141,12 +139,10 @@ void AppController::restartGpsIfNeeded()
 
 void AppController::setupEngine()
 {
-    m_flashlightController = new FlashlightController();
     m_fileManager = new FileManager();
     m_thumbnailGenerator = new ThumbnailGenerator();
     m_qrCodeHandler = new QRCodeHandler();
 
-    m_engine->rootContext()->setContextProperty("flashlightController", m_flashlightController);
     m_engine->rootContext()->setContextProperty("fileManager", m_fileManager);
     m_engine->rootContext()->setContextProperty("thumbnailGenerator", m_thumbnailGenerator);
     m_engine->rootContext()->setContextProperty("QRCodeHandler", m_qrCodeHandler);

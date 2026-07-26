@@ -45,20 +45,16 @@ include_directories(${ZXING_INCLUDE_DIR})
 set(APP_SOURCES
 		${CMAKE_SOURCE_DIR}/src/main.cpp
 		${CMAKE_SOURCE_DIR}/src/thumbnailgenerator.cpp
-		${CMAKE_SOURCE_DIR}/src/flashlightcontroller.cpp
 		${CMAKE_SOURCE_DIR}/src/filemanager.cpp
 		${CMAKE_SOURCE_DIR}/src/exif.cpp
 		${CMAKE_SOURCE_DIR}/src/qrcodehandler.cpp
 		${CMAKE_SOURCE_DIR}/src/geocluefind.cpp
 		${CMAKE_SOURCE_DIR}/src/singleinstance.cpp
-		${CMAKE_SOURCE_DIR}/src/windoweventfilter.cpp
 		${CMAKE_SOURCE_DIR}/src/appcontroller.cpp
 		${CMAKE_SOURCE_DIR}/src/settingsmanager.cpp
 		${CMAKE_SOURCE_DIR}/src/accelreader.cpp
 		${CMAKE_SOURCE_DIR}/src/hdrprocessor.cpp
-		${CMAKE_SOURCE_DIR}/src/pixelfilter.cpp
-		${CMAKE_SOURCE_DIR}/src/whitebalancecontroller.cpp
-		${CMAKE_SOURCE_DIR}/src/meteringcontroller.cpp)
+		${CMAKE_SOURCE_DIR}/src/pixelfilter.cpp)
 
 if(FURICAM_CAMERA2 AND EXISTS ${CMAKE_SOURCE_DIR}/src/camera2/Camera2Bridge.cpp)
     # Camera2Bridge is the Qt/QML adapter; the rest of the engine lives in the
@@ -68,21 +64,17 @@ endif()
 
 set(APP_HEADERS
 		${CMAKE_SOURCE_DIR}/src/filemanager.h
-		${CMAKE_SOURCE_DIR}/src/flashlightcontroller.h
 		${CMAKE_SOURCE_DIR}/src/thumbnailgenerator.h
 		${CMAKE_SOURCE_DIR}/src/zxingreader.h
 		${CMAKE_SOURCE_DIR}/src/exif.h
 		${CMAKE_SOURCE_DIR}/src/qrcodehandler.h
 		${CMAKE_SOURCE_DIR}/src/geocluefind.h
 		${CMAKE_SOURCE_DIR}/src/singleinstance.h
-		${CMAKE_SOURCE_DIR}/src/windoweventfilter.h
 		${CMAKE_SOURCE_DIR}/src/appcontroller.h
 		${CMAKE_SOURCE_DIR}/src/settingsmanager.h
 		${CMAKE_SOURCE_DIR}/src/accelreader.h
 		${CMAKE_SOURCE_DIR}/src/hdrprocessor.h
-		${CMAKE_SOURCE_DIR}/src/pixelfilter.h
-		${CMAKE_SOURCE_DIR}/src/whitebalancecontroller.h
-		${CMAKE_SOURCE_DIR}/src/meteringcontroller.h)
+		${CMAKE_SOURCE_DIR}/src/pixelfilter.h)
 
 if(FURICAM_CAMERA2
    AND EXISTS ${CMAKE_SOURCE_DIR}/src/camera2/Camera2Bridge.h

@@ -25,7 +25,6 @@
 #include <QQuickWindow>
 #include <QSystemTrayIcon>
 
-class FlashlightController;
 class FileManager;
 class ThumbnailGenerator;
 class QRCodeHandler;
@@ -62,7 +61,6 @@ private:
     QQmlApplicationEngine* m_engine;
     QQuickWindow* m_window;
     QSystemTrayIcon* m_trayIcon;
-    FlashlightController* m_flashlightController;
     FileManager* m_fileManager;
     ThumbnailGenerator* m_thumbnailGenerator;
     QRCodeHandler* m_qrCodeHandler;
