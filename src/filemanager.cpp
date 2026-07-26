@@ -322,11 +322,16 @@ easyexif::EXIFInfo FileManager::getPictureMetaData(const QString &fileUrl){
 
 QString FileManager::getTimeFormat() {
 
-    QProcess process;
-    process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "clock-format");
-    process.waitForFinished();
+    // The clock format changes rarely and this is called per gallery item, so
+    // spawn gsettings only once per app run instead of per call.
+    static const QString cached = [] {
+        QProcess process;
+        process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "clock-format");
+        process.waitForFinished();
+        return QString::fromUtf8(process.readAllStandardOutput().trimmed());
+    }();
 
-    return process.readAllStandardOutput().trimmed();
+    return cached;
 }
 
 QString FileManager::getPictureDate(const QString &fileUrl) {
