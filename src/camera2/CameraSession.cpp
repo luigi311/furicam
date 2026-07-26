@@ -421,6 +421,17 @@ bool CameraSession::open(const std::string& id)
 
 void CameraSession::close()
 {
+    // Finalize an in-progress clip first — backgrounding the app mid-recording
+    // must leave a playable MP4, not an un-finalized fragment.  Stop the camera
+    // feeding the encoder, then drain + finalize before anything is torn down.
+    if (recording_) {
+        if (!videoMode_ && recordSession_) {
+            ACameraCaptureSession_stopRepeating(recordSession_);
+        }
+        if (encoder_)
+            encoder_->endClip();   // no-op if the clip already ended
+    }
+
     // Tear down any recording / video-mode / mic state first.
     recording_ = false;
     if (audioEnc_) {
