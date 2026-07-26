@@ -11,8 +11,6 @@
 #include <QApplication>
 #include <QIcon>
 #include <QFont>
-#include <QSystemTrayIcon>
-#include <QMenu>
 #include <QQmlEngine>
 #include "singleinstance.h"
 #include "appcontroller.h"
@@ -50,14 +48,6 @@ int main(int argc, char *argv[])
     app.setFont(cantarell);
 
     AppController appController(app);
-
-    QSystemTrayIcon trayIcon(QIcon("/usr/share/icons/furicam.svg"), &app);
-    QMenu trayMenu;
-    QAction quitAction("Quit");
-    QObject::connect(&quitAction, &QAction::triggered, &app, &QCoreApplication::quit);
-    trayMenu.addAction(&quitAction);
-    trayIcon.setContextMenu(&trayMenu);
-    trayIcon.show();
 
     QObject::connect(&singleInstance, &SingleInstance::showWindow, &appController, &AppController::showWindow);
 

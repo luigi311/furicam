@@ -10,7 +10,7 @@
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import QtQuick.Window 2.12
+import QtQuick.Window 2.15
 import Qt5Compat.GraphicalEffects
 import QtMultimedia
 import QtQuick.Layouts 1.15
@@ -39,6 +39,8 @@ ApplicationWindow {
     height: 800
     visible: true
     title: "CameraWindow"
+    // phosh window hint (regressed vs upstream furios-camera).
+    flags: Qt.FramelessWindowHint
 
     property real refHeight: 1080
     property real refWidth: 2412

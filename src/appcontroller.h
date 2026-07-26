@@ -23,7 +23,6 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
-#include <QSystemTrayIcon>
 
 class FileManager;
 class ThumbnailGenerator;
@@ -60,7 +59,6 @@ private:
     QApplication& m_app;
     QQmlApplicationEngine* m_engine;
     QQuickWindow* m_window;
-    QSystemTrayIcon* m_trayIcon;
     FileManager* m_fileManager;
     ThumbnailGenerator* m_thumbnailGenerator;
     QRCodeHandler* m_qrCodeHandler;

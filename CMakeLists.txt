@@ -127,6 +127,7 @@ if(CMAKE_INSTALL_PREFIX STREQUAL "/app")
 else()
     install(TARGETS ${PROJECT_NAME} DESTINATION /usr/bin)
     install(FILES ${CMAKE_SOURCE_DIR}/furicam.desktop DESTINATION /usr/share/applications)
+    # System config + polkit rule (read-only, version-agnostic).
+    install(FILES ${CMAKE_SOURCE_DIR}/furicam.conf DESTINATION /etc)
+    install(FILES ${CMAKE_SOURCE_DIR}/extra/furicam-radio.pkla DESTINATION /etc/polkit-1/localauthority/50-local.d)
 endif()
-# Share icon, system /etc config, polkit pkla, and GSettings schema with the
-# original furicam install — they are read-only and version-agnostic.
