@@ -207,6 +207,9 @@ public:
                         int deviceRotation = 0);
     void stopRecording();
     bool isRecording() const { return recording_; }
+    // True when the just-stopped clip had a muxer write failure (e.g. storage
+    // full) — the file on disk is truncated/corrupt and the UI should say so.
+    bool recordingWriteFailed() const;
 
     // ── Pre-warm the mic (Milestone 6) ───────────────────────────────────────
     // Warm up the audio pipeline ahead of recording (e.g. on entering video

@@ -89,6 +89,9 @@ public:
     bool isRecording() const { return clipActive_.load(); }
     const std::string& lastError() const { return lastError_; }
     int  framesWritten() const { return framesWritten_.load(); }
+    // Set when a muxer write fails (e.g. full storage) — checked on stop so a
+    // silently corrupt/truncated clip surfaces as an error instead.
+    bool writeFailed() const { return writeFailed_.load(); }
 
     // ── Optional audio track (Milestone 6) ───────────────────────────────────
     // Call expectAudio(true) BEFORE beginClip() so the muxer waits for the audio
@@ -141,6 +144,7 @@ private:
     std::atomic<bool>  clipActive_    {false};
     std::atomic<int>   framesWritten_ {0};
     std::atomic<int>   audioFramesWritten_ {0};
+    std::atomic<bool>  writeFailed_   {false};
     std::string        lastError_;
 };
 

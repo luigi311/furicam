@@ -145,7 +145,11 @@ bool AudioEncoder::start(int bitrate, int sampleRate, int channels)
 
     d_ = new Impl();
     d_->pipeline = pipeline;
-    d_->sink     = GST_APP_SINK(sinkEl);   // owned by the pipeline
+    d_->sink     = GST_APP_SINK(sinkEl);
+    // gst_bin_get_by_name returns a NEW reference on top of the pipeline's own —
+    // drop ours so one appsink isn't leaked per recording session.  The pipeline
+    // keeps the element alive.
+    gst_object_unref(sinkEl);
 
     GstStateChangeReturn r = gst_element_set_state(pipeline, GST_STATE_PLAYING);
     if (r == GST_STATE_CHANGE_FAILURE) {
@@ -236,9 +240,11 @@ void AudioEncoder::pullLoop()
                     AMediaFormat_setInt32(fmt, "channel-count", d_->channels);
                     AMediaFormat_setInt32(fmt, "aac-profile", 2);   // AOT_LC
                     AMediaFormat_setBuffer(fmt, "csd-0", d_->asc.data(), d_->asc.size());
-                    d_->addTrack(fmt);
+                    // addTrack returns the muxer track index, or -1 on failure —
+                    // only mark the track added when it really was, so a failed
+                    // add doesn't silently drop audio for the whole clip.
+                    d_->trackAdded = (d_->addTrack(fmt) >= 0);
                     AMediaFormat_delete(fmt);
-                    d_->trackAdded = true;
                 }
                 if (d_->write)
                     d_->write(map.data, info);

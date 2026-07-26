@@ -66,18 +66,27 @@ bool VideoEncoder::open(int width, int height, int fps, int bitrate, int orienta
     AMediaFormat_delete(fmt);
     if (ms != AMEDIA_OK) {
         lastError_ = "AMediaCodec_configure failed (status " + std::to_string((int)ms) + ")";
+        AMediaCodec_delete(codec_);   // don't poison: leave codec_ null so a retry works
+        codec_ = nullptr;
         return false;
     }
 
     ms = AMediaCodec_createInputSurface(codec_, &inputWindow_);
     if (ms != AMEDIA_OK || !inputWindow_) {
         lastError_ = "AMediaCodec_createInputSurface failed (status " + std::to_string((int)ms) + ")";
+        if (inputWindow_) { ANativeWindow_release(inputWindow_); inputWindow_ = nullptr; }
+        AMediaCodec_delete(codec_);
+        codec_ = nullptr;
         return false;
     }
 
     ms = AMediaCodec_start(codec_);
     if (ms != AMEDIA_OK) {
         lastError_ = "AMediaCodec_start failed (status " + std::to_string((int)ms) + ")";
+        ANativeWindow_release(inputWindow_);
+        inputWindow_ = nullptr;
+        AMediaCodec_delete(codec_);
+        codec_ = nullptr;
         return false;
     }
 
@@ -168,8 +177,10 @@ void VideoEncoder::drainLoop()
                             firstVideoPtsUs_ = info.presentationTimeUs;
                         AMediaCodecBufferInfo wi = info;
                         wi.presentationTimeUs = info.presentationTimeUs - firstVideoPtsUs_;
-                        AMediaMuxer_writeSampleData(muxer_, (size_t)trackIdx_, buf, &wi);
-                        framesWritten_.fetch_add(1, std::memory_order_relaxed);
+                        if (AMediaMuxer_writeSampleData(muxer_, (size_t)trackIdx_, buf, &wi) != 0)
+                            writeFailed_.store(true);   // e.g. storage full — surfaced on stop
+                        else
+                            framesWritten_.fetch_add(1, std::memory_order_relaxed);
                     }
                 }
             }
@@ -314,8 +325,10 @@ void VideoEncoder::writeAudioSample(const uint8_t* data, AMediaCodecBufferInfo i
     info.presentationTimeUs -= firstAudioPtsUs_;
     if (info.presentationTimeUs < 0)
         info.presentationTimeUs = 0;
-    AMediaMuxer_writeSampleData(muxer_, (size_t)audioTrackIdx_, data, &info);
-    audioFramesWritten_.fetch_add(1, std::memory_order_relaxed);
+    if (AMediaMuxer_writeSampleData(muxer_, (size_t)audioTrackIdx_, data, &info) != 0)
+        writeFailed_.store(true);
+    else
+        audioFramesWritten_.fetch_add(1, std::memory_order_relaxed);
 }
 
 } // namespace furicam

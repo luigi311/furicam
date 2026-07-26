@@ -139,6 +139,11 @@ bool writeDng(const std::string& path, const uint16_t* pixels,
     auto fail = [&](const char* m) { if (err) *err = m; return false; };
     if (!pixels || p.width <= 0 || p.height <= 0) return fail("invalid raw params");
 
+    // A row stride smaller than a packed row would read past the source buffer.
+    const size_t rowBytesCheck = (size_t)p.width * 2;
+    if (p.rowStrideBytes > 0 && (size_t)p.rowStrideBytes < rowBytesCheck)
+        return fail("rowStrideBytes smaller than width*2");
+
     const uint32_t imgBytes = (uint32_t)p.width * (uint32_t)p.height * 2u;
 
     // CFA pattern (DNG codes 0=R 1=G 2=B), per arrangement.
@@ -234,8 +239,15 @@ bool writeDng(const std::string& path, const uint16_t* pixels,
     ifd0.setLong1(34665, exifOff);  // ExifIFD
 
     // ── Emit ─────────────────────────────────────────────────────────────────
+    // The whole DNG is assembled in one buffer before writing — a 20MP RAW is
+    // ~100MB, so guard the allocation rather than let bad_alloc kill the writer
+    // thread.
     std::vector<uint8_t> buf;
-    buf.reserve(imgOff + imgBytes);
+    try {
+        buf.reserve(imgOff + imgBytes);
+    } catch (const std::bad_alloc&) {
+        return fail("out of memory assembling DNG");
+    }
     buf.push_back('I'); buf.push_back('I');           // little-endian
     put16(buf, 42);
     put32(buf, ifd0Off);
@@ -248,7 +260,11 @@ bool writeDng(const std::string& path, const uint16_t* pixels,
     const size_t stride = p.rowStrideBytes > 0 ? (size_t)p.rowStrideBytes : rowBytes;
     const uint8_t* src = reinterpret_cast<const uint8_t*>(pixels);
     size_t base = buf.size();
-    buf.resize(base + imgBytes);
+    try {
+        buf.resize(base + imgBytes);
+    } catch (const std::bad_alloc&) {
+        return fail("out of memory assembling DNG strip");
+    }
     for (int y = 0; y < p.height; ++y)
         std::memcpy(buf.data() + base + (size_t)y * rowBytes, src + (size_t)y * stride, rowBytes);
 

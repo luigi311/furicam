@@ -1707,6 +1707,11 @@ bool CameraSession::startRecording(const std::string& path, int width, int heigh
     return true;
 }
 
+bool CameraSession::recordingWriteFailed() const
+{
+    return encoder_ && encoder_->writeFailed();
+}
+
 void CameraSession::stopRecording()
 {
     // ── Combined path: switch back to preview-only (camera stops feeding the

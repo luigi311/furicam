@@ -568,7 +568,10 @@ void Camera2Bridge::stopRecording()
     session_->stopRecording();
     recording_.store(false);
     emit recordingChanged();
-    emit recordingSaved(recordingPath_);
+    if (session_->recordingWriteFailed())
+        emit cameraError(QStringLiteral("Recording failed — storage may be full (clip is corrupt)"));
+    else
+        emit recordingSaved(recordingPath_);
     // In video mode the preview never stopped; only the legacy path needs the
     // displaced preview restarted.
     if (!wasVideoMode)
