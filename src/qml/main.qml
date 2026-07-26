@@ -204,7 +204,6 @@ ApplicationWindow {
         property int jpegQuality: 90
         property int gridEnabled: 0
         property int levelEnabled: 0
-        property int videoBitrate: 20000
         property int videoResWidth: 1920
         property int videoResHeight: 1080
         property int eisEnabled: 1
@@ -1257,6 +1256,9 @@ ApplicationWindow {
                         transformOrigin: Item.Center
                         fillMode: Image.Stretch
                         smooth: false
+                        asynchronous: true
+                        sourceSize.width: reviewBtn.width * 2
+                        sourceSize.height: reviewBtn.height * 2
                         source: mediaView.lastImg
                         scale: Math.min(parent.width / width, parent.height / height)
                     }
@@ -2395,64 +2397,6 @@ ApplicationWindow {
                     implicitHeight: 22 * window.scalingRatio
                     radius: 11 * window.scalingRatio
                     color: qualitySlider.pressed ? "#ddd" : "white"
-                }
-            }
-
-            Rectangle {
-                width: parent.width - 32 * window.scalingRatio
-                height: 1
-                color: "#444"
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Text {
-                text: "Video Bitrate: " + (settings.videoBitrate / 1000).toFixed(0) + " Mbps"
-                color: "white"
-                font.pixelSize: 18 * window.scalingRatio
-                font.bold: true
-                leftPadding: 16 * window.scalingRatio
-            }
-
-            Slider {
-                id: bitrateSlider
-                width: parent.width - 32 * window.scalingRatio
-                anchors.horizontalCenter: parent.horizontalCenter
-                from: 2000
-                to: 50000
-                stepSize: 1000
-                value: settings.videoBitrate
-
-                onMoved: {
-                    settings.videoBitrate = value;
-                    if (cameraLoader.item)
-                        cameraLoader.item.handleSetVideoBitrate(value);
-                }
-
-                background: Rectangle {
-                    x: bitrateSlider.leftPadding
-                    y: bitrateSlider.topPadding + bitrateSlider.availableHeight / 2 - height / 2
-                    implicitWidth: 200
-                    implicitHeight: 4 * window.scalingRatio
-                    width: bitrateSlider.availableWidth
-                    height: implicitHeight
-                    radius: 2 * window.scalingRatio
-                    color: "#555"
-
-                    Rectangle {
-                        width: bitrateSlider.visualPosition * parent.width
-                        height: parent.height
-                        color: "#62a0ea"
-                        radius: 2 * window.scalingRatio
-                    }
-                }
-
-                handle: Rectangle {
-                    x: bitrateSlider.leftPadding + bitrateSlider.visualPosition * (bitrateSlider.availableWidth - width)
-                    y: bitrateSlider.topPadding + bitrateSlider.availableHeight / 2 - height / 2
-                    implicitWidth: 22 * window.scalingRatio
-                    implicitHeight: 22 * window.scalingRatio
-                    radius: 11 * window.scalingRatio
-                    color: bitrateSlider.pressed ? "#ddd" : "white"
                 }
             }
 
