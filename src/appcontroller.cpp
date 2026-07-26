@@ -158,6 +158,7 @@ void AppController::get_last_orientation_state() {
     GSettings *settings = g_settings_new("org.gnome.settings-daemon.peripherals.touchscreen");
     if (!settings) {
         qDebug() << "Error: Failed to create GSettings object.";
+        return;
     }
 
     gboolean value = g_settings_get_boolean(settings, "orientation-lock");
