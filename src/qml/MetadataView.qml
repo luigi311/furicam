@@ -33,10 +33,13 @@ Item {
         metadataModel.clear();
         if (url !== "") {
             if (url.endsWith(".mkv") || url.endsWith(".mp4")) {
-                metadataModel.append({title: "File Type", value: fileManager.getDocumentType(url), dataHeight: avgMetadataContainerHeight});
+                // File Size is instant; the ffprobe-derived rows fill in when
+                // videoInfoReady arrives (see Connections below).
+                metadataModel.append({title: "File Type", value: "…", dataHeight: avgMetadataContainerHeight});
                 metadataModel.append({title: "File Size", value: fileManager.getFileSize(url), dataHeight: avgMetadataContainerHeight});
-                metadataModel.append({title: "Video Dimensions", value: fileManager.getVideoDimensions(url), dataHeight: avgMetadataContainerHeight});
-                metadataModel.append({title: "Codec ID", value: fileManager.getCodecId(url), dataHeight: avgMetadataContainerHeight});
+                metadataModel.append({title: "Video Dimensions", value: "…", dataHeight: avgMetadataContainerHeight});
+                metadataModel.append({title: "Codec ID", value: "…", dataHeight: avgMetadataContainerHeight});
+                fileManager.requestVideoInfo(url);
             } else {
                 metadataModel.append({title: "Maker, Model", value: fileManager.getCameraHardware(url), dataHeight: avgMetadataContainerHeight});
                 metadataModel.append({title: "Image Dimensions", value: fileManager.getDimensions(url), dataHeight: avgMetadataContainerHeight});
@@ -61,6 +64,20 @@ Item {
 
     ListModel {
         id: metadataModel
+    }
+
+    Connections {
+        target: fileManager
+        function onVideoInfoReady(fileUrl, docType, dimensions, codec) {
+            if (fileUrl !== metadataViewComponent.currentFileUrl)
+                return;   // user swiped to another item while the probe ran
+            for (var i = 0; i < metadataModel.count; ++i) {
+                var row = metadataModel.get(i);
+                if (row.title === "File Type")           metadataModel.setProperty(i, "value", docType);
+                else if (row.title === "Video Dimensions") metadataModel.setProperty(i, "value", dimensions);
+                else if (row.title === "Codec ID")         metadataModel.setProperty(i, "value", codec);
+            }
+        }
     }
 
     onCurrentFileUrlChanged: {

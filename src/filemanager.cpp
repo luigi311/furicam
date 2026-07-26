@@ -793,6 +793,57 @@ QString FileManager::getCodecId(const QString &fileUrl) {
     return QString("Codec ID: Not found");
 }
 
+// Format the metadata drawer's three values from one probe's key=value output.
+static void parseVideoInfo(const QString &out, QString *docType, QString *dimensions, QString *codec) {
+    QString fmt, w, h, c;
+    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QString key = line.section('=', 0, 0);
+        const QString val = line.section('=', 1).trimmed();
+        if (key == "TAG:format_name" || key == "format_name") fmt = val;
+        else if (key == "width")  w = val;
+        else if (key == "height") h = val;
+        else if (key == "codec_name") c = val;
+    }
+    fmt = fmt.section(',', 0, 0).trimmed();
+    if (fmt == "mov")      fmt = "MP4";
+    else if (fmt == "matroska") fmt = "MKV";
+    *docType = fmt.isEmpty() ? QStringLiteral("File Type: Not found")
+                             : QStringLiteral("File Type: %1").arg(fmt.toUpper());
+    *dimensions = (!w.isEmpty() && !h.isEmpty()) ? QStringLiteral("%1x%2").arg(w, h)
+                                                 : QStringLiteral("Dimensions not found.");
+    *codec = c.isEmpty() ? QStringLiteral("Codec ID: Not found")
+                         : QStringLiteral("Codec ID: %1").arg(c.toUpper());
+}
+
+void FileManager::requestVideoInfo(const QString &fileUrl) {
+    const QString path = QUrl(fileUrl).isLocalFile() ? QUrl(fileUrl).toLocalFile() : fileUrl;
+
+    // One ffprobe for all three fields; self-deleting on finish (same pattern
+    // as requestVideoDate).  format=format_name also covers stream lookups, so
+    // a single -show_entries keeps it to one process.
+    QProcess *probe = new QProcess(this);
+    auto finish = [this, probe, fileUrl](const QString &out) {
+        QString docType, dimensions, codec;
+        parseVideoInfo(out, &docType, &dimensions, &codec);
+        emit videoInfoReady(fileUrl, docType, dimensions, codec);
+        probe->deleteLater();
+    };
+    connect(probe, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [finish, probe](int, QProcess::ExitStatus) {
+        finish(QString::fromUtf8(probe->readAllStandardOutput()));
+    });
+    connect(probe, &QProcess::errorOccurred, this, [finish](QProcess::ProcessError) {
+        finish(QString());
+    });
+    probe->start("ffprobe", QStringList()
+                 << "-v" << "error"
+                 << "-select_streams" << "v:0"
+                 << "-show_entries" << "stream=width,height,codec_name:format=format_name"
+                 << "-of" << "default=noprint_wrappers=1"
+                 << path);
+}
+
 // ***************** GPS Metadata *****************
 
 bool FileManager::gpsMetadataAvailable(const QString &fileUrl) {

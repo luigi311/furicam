@@ -61,6 +61,11 @@ public:
     Q_INVOKABLE QString getWritingApplication(const QString &fileUrl);
     Q_INVOKABLE QString getDocumentType(const QString &fileUrl);
     Q_INVOKABLE QString getCodecId(const QString &fileUrl);
+    // Asynchronous combined probe: one ffprobe process gathers container type,
+    // dimensions and codec (the three above run one blocking process each) and
+    // emits videoInfoReady().  The metadata drawer uses this so opening it on a
+    // video never stalls the UI.
+    Q_INVOKABLE void requestVideoInfo(const QString &fileUrl);
 // ***************** GPS Metadata *****************
     Q_INVOKABLE bool gpsMetadataAvailable(const QString &fileUrl);
     Q_INVOKABLE QString getGpsMetadata(const QString &fileUrl);
@@ -78,6 +83,8 @@ public:
 signals:
     void gpsDataReady();
     void videoDateReady(const QString &fileUrl, const QString &date);
+    void videoInfoReady(const QString &fileUrl, const QString &docType,
+                        const QString &dimensions, const QString &codec);
 
 private slots:
     void onLocationUpdated();
