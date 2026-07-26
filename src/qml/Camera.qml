@@ -48,7 +48,6 @@ Item {
     function setFocusDistance(diopters) { cam2.setFocusDistance(diopters) }
     function setJpegQuality(q) { cam2.setJpegQuality(q) }
     function handleSetRaw(on) { cam2.setRawEnabled(on) }
-    function handleSetVideoBitrate(kbps) { cam2.setVideoBitrate(kbps) }
     function handleSetVideoResolution(w, h) { cam2.setVideoResolution(w, h) }
     function handleSetVideoStabilization(on) { cam2.setVideoStabilization(on) }
 
@@ -489,7 +488,6 @@ Item {
                 focusState.state = "Default"
                 cameraItem.fnAspectRatio()
                 cam2.setRawEnabled(settings.rawEnabled)
-                cam2.setVideoBitrate(settings.videoBitrate)
                 cam2.setVideoResolution(settings.videoResWidth, settings.videoResHeight)
                 cam2.setVideoStabilization(settings.eisEnabled === 1)
                 cameraItem.applyVideoMode()   // enter video mode if starting on the video tab
@@ -506,8 +504,6 @@ Item {
                     cameraItem.switchBlurBaseCount = cam2.frameCount
             }
         }
-        // Keep the bitrate slider in sync when resolution changes bump the floor.
-        onVideoBitrateChanged: settings.videoBitrate = videoBitrateKbps
         onCameraError: {
             cameraItem.errorBannerText = message
             cameraItem.errorBannerVisible = true

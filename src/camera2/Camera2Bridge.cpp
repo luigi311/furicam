@@ -538,7 +538,7 @@ bool Camera2Bridge::startRecording(const QString& outputPath)
     if (!session_->isVideoMode())
         previewReader_ = nullptr;
     if (!session_->startRecording(recordingPath_.toStdString(), videoW_, videoH_,
-                                    30, videoBitrate_ * 1000, true,
+                                    30, videoBitrateKbps() * 1000, true,
                                     deviceRotation_.load())) {
         emit cameraError(QString::fromStdString(session_->lastError()));
         return false;
@@ -563,7 +563,7 @@ void Camera2Bridge::stopRecording()
         startCamera();
 }
 
-// ── Bitrate floor by resolution (kbps) ──────────────────────────────────────
+// ── Bitrate by resolution (kbps) ────────────────────────────────────────────
 // ponytail: prevents 20 Mbps starving 4K; gives lower res a sensible default.
 static int floorBitrateKbps(int videoWidth)
 {
@@ -574,7 +574,7 @@ static int floorBitrateKbps(int videoWidth)
 
 int Camera2Bridge::videoBitrateKbps() const
 {
-    return std::max(videoBitrate_, floorBitrateKbps(videoW_));
+    return floorBitrateKbps(videoW_);
 }
 
 void Camera2Bridge::enterVideoMode()
@@ -599,16 +599,6 @@ void Camera2Bridge::rebuildVideoIfActive()
         session_->exitVideoMode();
         enterVideoMode();
     }
-}
-
-// Set the H.264 video bitrate (kbps).  Rebuilds the video session if it's up
-// (and not recording) so the new bitrate takes effect immediately.
-void Camera2Bridge::setVideoBitrate(int kbps)
-{
-    if (kbps <= 0 || kbps == videoBitrate_)
-        return;
-    videoBitrate_ = kbps;
-    rebuildVideoIfActive();
 }
 
 void Camera2Bridge::setVideoStabilization(bool on)
@@ -645,20 +635,14 @@ void Camera2Bridge::setVideoHeight(int height)
 void Camera2Bridge::setVideoResolution(int width, int height)
 {
     const bool sizeChanged = (width > 0 && width != videoW_) || (height > 0 && height != videoH_);
-    const int  oldKbps     = videoBitrateKbps();
     if (width  > 0) videoW_ = width;
     if (height > 0) videoH_ = height;
     if (sizeChanged) {
-        // Snap the bitrate to the new resolution's floor so the slider reflects it.
-        const int newFloor = floorBitrateKbps(videoW_);
-        videoBitrate_ = newFloor;   // always reset to floor on resolution change
         emit videoSizeChanged();
         rebuildVideoIfActive();
         if (videoModeDesired_)
             recomputePreviewAspect();
     }
-    if (videoBitrateKbps() != oldKbps)
-        emit videoBitrateChanged();
 }
 
 void Camera2Bridge::setVideoMode(bool on)

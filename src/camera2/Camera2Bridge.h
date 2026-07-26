@@ -65,9 +65,7 @@ class Camera2Bridge
     Q_PROPERTY(int     videoWidth          READ videoWidth  WRITE setVideoWidth  NOTIFY videoSizeChanged)
     Q_PROPERTY(int     videoHeight         READ videoHeight WRITE setVideoHeight NOTIFY videoSizeChanged)
 
-    // Effective video bitrate in kbps (floor-by-resolution applied).  The QML
-    // slider binds here so it auto-updates when resolution changes.
-    Q_PROPERTY(int     videoBitrateKbps    READ videoBitrateKbps                NOTIFY videoBitrateChanged)
+    // Video bitrate is fixed per resolution (see floorBitrateKbps) — no user control.
 
     // Current exposure for the on-screen badge ("ISO 200, 1/60").  ISO here is
     // international standards organization sensor sensitivity; shutterNs is
@@ -286,7 +284,6 @@ public:
     // if already in video mode (and not recording) the session is rebuilt at the
     // new size.  Bind to the app's video-resolution setting.
     Q_INVOKABLE void setVideoResolution(int width, int height);
-    Q_INVOKABLE void setVideoBitrate(int kbps);   // H.264 bitrate in kbps
     Q_INVOKABLE void setVideoStabilization(bool on);
     int  videoBitrateKbps() const;
     int  videoWidth()  const { return videoW_; }
@@ -306,7 +303,6 @@ signals:
     void lastPhotoPathChanged();
     void videoModeChanged();
     void videoSizeChanged();
-    void videoBitrateChanged();
     void hdrEnabledChanged();
     void hdrSaveEv0Changed();
     void hdrBusyChanged();
@@ -368,7 +364,6 @@ private:
     bool                 videoModeDesired_   = false;   // GUI's photo/video toggle
     int                  videoW_             = 1920;     // recording size
     int                  videoH_             = 1080;
-    int                  videoBitrate_       = 0;        // kbps; 0 = resolution-scaled default
     // ponytail: per-camera still resolution — cameras have wildly different
     // sensor sizes (20 MP main, 13 MP selfie, 1.6 MP macro), so remembering
     // the user's choice by camera id avoids cross-camera over-size failures.
