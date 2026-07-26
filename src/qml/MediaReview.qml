@@ -129,7 +129,9 @@ Rectangle {
     FolderListModel {
         id: imgModel
         // _refreshClearing momentarily empties the folder, forcing a full rescan
-        // when it returns to false (needed because inotify is unavailable on device).
+        // when it returns to false.  FolderListModel does NOT watch the directory
+        // for changes (verified on-device: inotify/QFileSystemWatcher works fine,
+        // the model just never reloads itself), so the delete button nudges it.
         folder: viewRect._refreshClearing ? "" : viewRect.folder
         showDirs: false
         nameFilters: cslate.state == "VideoCapture" ? ["*.mp4", "*.mkv"] : ["*.jpg"]
