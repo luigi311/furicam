@@ -933,10 +933,13 @@ void Camera2Bridge::finishHdrBurst()
     qDebug() << "[camera] HDR merge: starting OpenCV fusion on worker thread";
     hdrPaths_.clear();
     QDir().mkpath(outDir);
-    std::thread([this, paths, outDir] {
+    // Capture hdrSaveEv0_ by value: this detached worker may outlive the bridge
+    // (window hidden mid-fusion), so don't read member state from it.
+    const bool saveEv0 = hdrSaveEv0_.load();
+    std::thread([this, paths, outDir, saveEv0] {
         // Copy EV 0 frame to a permanent file before processHdrBurst() deletes the temps.
         QString ev0Path;
-        if (hdrSaveEv0_.load() && !paths.isEmpty()) {
+        if (saveEv0 && !paths.isEmpty()) {
             ev0Path = QDir(outDir).filePath(
                 QStringLiteral("IMG_%1.jpg").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")));
             if (!QFile::copy(paths[0], ev0Path)) {

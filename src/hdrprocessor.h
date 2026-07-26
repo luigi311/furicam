@@ -30,6 +30,11 @@ public:
 
     // Remove any leftover burst files from a previous (possibly failed) HDR capture.
     Q_INVOKABLE void cleanBurstDir(const QString &burstDir);
+
+private:
+    // Real pipeline; processHdrBurst wraps it in try/catch since it runs on a
+    // detached thread where an exception is std::terminate.
+    QString processHdrBurstImpl(const QStringList &framePaths, const QString &outputDir);
 };
 
 #endif // HDRPROCESSOR_H

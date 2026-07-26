@@ -35,7 +35,15 @@
 
 // Direct-to-file debug log — qDebug doesn't reliably reach stderr on this
 // platform (Halium/Qt output routing), so write a simple trace for HDR.
+// /tmp is RAM-backed on the phone, so this is opt-in via env var rather than
+// an ever-growing file.
+static bool hdrLogEnabled() {
+    static const bool on = qEnvironmentVariableIsSet("FURICAM_HDR_DEBUG");
+    return on;
+}
 static void hdrLog(const QString &msg) {
+    if (!hdrLogEnabled())
+        return;
     QFile f("/tmp/hdr_debug.log");
     if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
         QTextStream s(&f);
@@ -77,6 +85,24 @@ HdrProcessor::HdrProcessor(QObject *parent)
 }
 
 QString HdrProcessor::processHdrBurst(const QStringList &framePaths, const QString &outputDir)
+{
+    // The whole pipeline allocates hundreds of MB (cv::Mat frames, float
+    // fusion buffers); on a phone under memory pressure any of those can
+    // throw, and this runs on a detached worker thread where an uncaught
+    // exception is std::terminate.  Catch everything and degrade to an
+    // empty result (the UI shows an error banner) instead of killing the app.
+    try {
+        return processHdrBurstImpl(framePaths, outputDir);
+    } catch (const std::exception &e) {
+        hdrLog(QString("  FATAL: %1").arg(e.what()));
+        qWarning() << "HdrProcessor: burst processing failed:" << e.what();
+    } catch (...) {
+        qWarning() << "HdrProcessor: burst processing failed (unknown exception)";
+    }
+    return QString();
+}
+
+QString HdrProcessor::processHdrBurstImpl(const QStringList &framePaths, const QString &outputDir)
 {
     hdrLog(QString("processHdrBurst: %1 frames, outputDir=%2").arg(framePaths.size()).arg(outputDir));
     for (int i = 0; i < framePaths.size(); ++i)
@@ -183,6 +209,7 @@ QString HdrProcessor::processHdrBurst(const QStringList &framePaths, const QStri
     // --- 6. Convert float [0,1] → uint8 at full resolution ---
     cv::Mat fused8u;
     fusedFull.convertTo(fused8u, CV_8U, 255.0);
+    fusedFull.release();  // free the ~240MB float buffer immediately
     {
         cv::Scalar m8u, s8u;
         cv::meanStdDev(fused8u, m8u, s8u);
@@ -256,21 +283,25 @@ void HdrProcessor::applyExposureCompensation(const QString &imagePath, float ev)
         return;
     }
 
-    cv::Mat mat = qImageToMat(img);
+    try {
+        cv::Mat mat = qImageToMat(img);
 
-    // Apply gain = 2^ev: positive EV brightens, negative darkens.
-    // Work in float to avoid banding from integer truncation.
-    cv::Mat mat32f;
-    mat.convertTo(mat32f, CV_32F);
-    mat32f *= static_cast<float>(std::pow(2.0, static_cast<double>(ev)));
-    cv::threshold(mat32f, mat32f, 255.0, 255.0, cv::THRESH_TRUNC);
+        // Apply gain = 2^ev: positive EV brightens, negative darkens.
+        // Work in float to avoid banding from integer truncation.
+        cv::Mat mat32f;
+        mat.convertTo(mat32f, CV_32F);
+        mat32f *= static_cast<float>(std::pow(2.0, static_cast<double>(ev)));
+        cv::threshold(mat32f, mat32f, 255.0, 255.0, cv::THRESH_TRUNC);
 
-    cv::Mat result;
-    mat32f.convertTo(result, CV_8U);
+        cv::Mat result;
+        mat32f.convertTo(result, CV_8U);
 
-    QImage resultImg = matToQImage(result);
-    if (!resultImg.save(path, "JPEG", 95))
-        qDebug() << "HdrProcessor: applyEV: could not save" << path;
+        QImage resultImg = matToQImage(result);
+        if (!resultImg.save(path, "JPEG", 95))
+            qDebug() << "HdrProcessor: applyEV: could not save" << path;
+    } catch (const std::exception &e) {
+        qWarning() << "HdrProcessor: applyEV failed:" << e.what();
+    }
 }
 
 void HdrProcessor::cleanBurstDir(const QString &burstDir)
