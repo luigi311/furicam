@@ -423,6 +423,11 @@ typedef struct ACameraCaptureFailure {
     bool    wasImageCaptured;
 } ACameraCaptureFailure;
 
+enum {
+    ACAPTUREFAILURE_REASON_ERROR   = 0,
+    ACAPTUREFAILURE_REASON_FLUSHED = 1,
+};
+
 typedef void (*ACameraCaptureSession_captureCallback_start)(
         void* context, ACameraCaptureSession* session,
         const ACaptureRequest* request, int64_t timestamp);

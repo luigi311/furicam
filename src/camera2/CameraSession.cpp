@@ -1148,6 +1148,39 @@ void CameraSession::onCaptureResult(void* ctx, ACameraCaptureSession* /*session*
     }
 }
 
+void CameraSession::onCaptureFailed(void* ctx, ACameraCaptureSession* /*session*/,
+                                    ACaptureRequest* request, ACameraCaptureFailure* failure)
+{
+    auto* self = static_cast<CameraSession*>(ctx);
+    if (!self)
+        return;
+    const bool wasError = failure && failure->reason == ACAPTUREFAILURE_REASON_ERROR;
+    const bool imageMayArrive = failure && failure->wasImageCaptured;
+    self->log(fmt("capture failed: frame %lld reason %d imageCaptured %d",
+                  failure ? (long long)failure->frameNumber : -1,
+                  failure ? (int)failure->reason : -1,
+                  (int)imageMayArrive));
+    // A FLUSH means the HAL may still deliver the image later; and if the image
+    // was already captured, it will arrive too.  Only a hard ERROR with no
+    // captured image guarantees no JPEG is coming, so only then drop the path.
+    if (!wasError || imageMayArrive)
+        return;
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lk(self->photoMutex_);
+        if (!self->pendingPhotoPaths_.empty()) {
+            path = self->pendingPhotoPaths_.front();
+            self->pendingPhotoPaths_.pop_front();
+        }
+        if (self->rawEnabled_ && !self->pendingRawPaths_.empty())
+            self->pendingRawPaths_.pop_front();
+    }
+    // Keep the queue honest so the NEXT photo can't be written to this stale
+    // path; surface the failure to the UI via the normal photo callback.
+    if (self->photoCallback_)
+        self->photoCallback_(path, false);
+}
+
 bool CameraSession::maxJpegSize(int* w, int* h) const
 {
     for (const auto& c : cameras_) {
@@ -1206,6 +1239,12 @@ bool CameraSession::capturePhoto(const std::string& path, int deviceRotation)
             pendingRawPaths_.push_back(dngPath);
         }
     }
+
+    // Per-still callbacks so a hard capture failure pops this shot's path
+    // instead of letting the NEXT photo inherit it.
+    stillCb_           = ACameraCaptureSession_captureCallbacks{};
+    stillCb_.context   = this;
+    stillCb_.onCaptureFailed = &CameraSession::onCaptureFailed;
 
     ACaptureRequest* req = nullptr;
     camera_status_t cs = ACameraDevice_createCaptureRequest(device_, TEMPLATE_STILL_CAPTURE, &req);
@@ -1267,7 +1306,7 @@ bool CameraSession::capturePhoto(const std::string& path, int deviceRotation)
     }
 
     int seqId = 0;
-    cs = ACameraCaptureSession_capture(captureSession_, nullptr, 1, &req, &seqId);
+    cs = ACameraCaptureSession_capture(captureSession_, &stillCb_, 1, &req, &seqId);
     // The NDK copies the request on submit, so targets/request can be freed now.
     ACameraOutputTarget_free(jpegTarget);
     if (rawTarget) ACameraOutputTarget_free(rawTarget);
@@ -1411,9 +1450,15 @@ bool CameraSession::captureBurst(const std::vector<std::string>& paths,
         }
     }
 
+    // Per-request failure tracking so a failed frame pops its own path instead
+    // of letting the next successful frame inherit a stale one.
+    stillCb_           = ACameraCaptureSession_captureCallbacks{};
+    stillCb_.context   = this;
+    stillCb_.onCaptureFailed = &CameraSession::onCaptureFailed;
+
     // Submit all requests in one call — the NDK copies them so we can free.
     int seqId = 0;
-    camera_status_t cs = ACameraCaptureSession_capture(captureSession_, nullptr,
+    camera_status_t cs = ACameraCaptureSession_capture(captureSession_, &stillCb_,
                                                        (int)N, guard.reqs.data(), &seqId);
     if (cs != ACAMERA_OK) {
         // On failure, scrub the queued paths so callbacks don't pop stale entries.

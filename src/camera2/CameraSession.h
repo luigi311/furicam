@@ -345,6 +345,8 @@ private:
     static void onSessionClosed(void* ctx, ACameraCaptureSession* session);
     static void onCaptureResult(void* ctx, ACameraCaptureSession* session,
                                 ACaptureRequest* request, const ACameraMetadata* result);
+    static void onCaptureFailed(void* ctx, ACameraCaptureSession* session,
+                                ACaptureRequest* request, ACameraCaptureFailure* failure);
 
     LogFn                        logFn_;
     std::function<void()>        frameCallback_;
@@ -366,6 +368,7 @@ private:
     AImageReader_ImageListener           readerListener_{};
     ACameraCaptureSession_stateCallbacks sessionCb_{};
     ACameraCaptureSession_captureCallbacks resultCb_{};   // reads AE_STATE off results
+    ACameraCaptureSession_captureCallbacks stillCb_{};    // per-still failure tracking
     std::atomic<int>                     lastAeState_{0};
     std::atomic<int>                     lastAfState_{0};  // cached AF state from capture results
     std::atomic<int>                     afAssistGen_{0};  // bumped on each AF-assist trigger
