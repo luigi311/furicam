@@ -1511,17 +1511,28 @@ void CameraSession::onJpegImageAvailable(void* ctx, AImageReader* reader)
     // Copy trimmed JPEG bytes out so the camera buffer can be released NOW;
     // the actual disk write happens on the background writer thread.
     std::vector<uint8_t> bytes;
+    bool truncated = false;
     uint8_t* data = nullptr;
     int len = 0;
     if (!path.empty()
         && AImage_getPlaneData(img, 0, &data, &len) == AMEDIA_OK && data && len > 0) {
         int actual = len;   // buffer is sized to the max JPEG; trim to End-Of-Image.
+        bool foundEoi = false;
         for (int i = len - 2; i >= 0; --i) {
-            if (data[i] == 0xFF && data[i + 1] == 0xD9) { actual = i + 2; break; }
+            if (data[i] == 0xFF && data[i + 1] == 0xD9) { actual = i + 2; foundEoi = true; break; }
         }
-        bytes.assign(data, data + actual);
+        // No EOI marker = the JPEG overran the HAL buffer and is cut short
+        // (seen on the +3EV HDR frame: long exposure → bigger JPEG than the
+        // reader buffer).  Saving it produces a "premature end of data" file
+        // that decodes as garbage; treat the shot as failed instead.
+        truncated = !foundEoi;
+        if (!truncated)
+            bytes.assign(data, data + actual);
     }
     AImage_delete(img);
+
+    if (truncated)
+        self->log(fmt("photo %s: no EOI marker — JPEG buffer truncated (%d bytes)", path.c_str(), len));
 
     if (path.empty() || bytes.empty()) {
         std::function<void(const std::string&, bool)> cb;

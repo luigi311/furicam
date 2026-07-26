@@ -127,8 +127,10 @@ QString HdrProcessor::processHdrBurstImpl(const QStringList &framePaths, const Q
 
         QImage img(path);
         if (img.isNull()) {
-            hdrLog(QString("  ERROR: QImage null for %1").arg(path));
-            qDebug() << "HdrProcessor: could not load" << path;
+            // A truncated/corrupt frame would silently fuse 2 of 3 brackets
+            // into a wrong-looking HDR — reject the whole burst loudly instead.
+            hdrLog(QString("  ERROR: undecodable frame %1 — aborting burst").arg(path));
+            qWarning() << "HdrProcessor: aborting burst, undecodable frame:" << path;
             return QString();
         }
         cv::Mat mat = qImageToMat(img);
