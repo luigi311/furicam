@@ -132,10 +132,22 @@ void Camera2Bridge::startCamera(int newFacing)
     // the old camera's held frame with the new mirror (the "flipped image"
     // glitch).  The real store happens after the reader is ready.
     const int wantFacing = (newFacing >= 0) ? newFacing : lensFacingPref_.load();
-    if (!session_)
+    if (!session_) {
         session_ = std::make_unique<CameraSession>([](const std::string& s) {
             std::fprintf(stderr, "[camera] %s\n", s.c_str());
         });
+        // The HAL declares the device dead via these — surface it instead of
+        // sitting on a frozen preview.  Queued: the callback fires on a binder
+        // thread.  A reconnect is just startCamera() (open() clears the flag).
+        session_->setDeviceDeadCallback([this](const std::string& why) {
+            QMetaObject::invokeMethod(this, [this, why] {
+                ready_.store(false);
+                emit readyChanged();
+                emit cameraError(QString::fromStdString(why +
+                                     " — close and reopen the camera"));
+            }, Qt::QueuedConnection);
+        });
+    }
 
     if (CameraSession::isHostStub()) {
         emit cameraError(QStringLiteral("Camera2 unavailable: host stub build"));

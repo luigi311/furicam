@@ -395,6 +395,7 @@ bool CameraSession::open(const std::string& id)
         device_ = nullptr;
         return false;
     }
+    deviceDead_.store(false);   // fresh device — clear any previous death flag
     openId_ = id;
     openSensorOrientation_ = 0;
     openFacing_ = -1;
@@ -1994,14 +1995,24 @@ void CameraSession::setFocusPoint(float x, float y)
 
 void CameraSession::onDeviceDisconnected(void* ctx, ACameraDevice* /*device*/)
 {
-    if (auto* self = static_cast<CameraSession*>(ctx))
-        self->log("camera disconnected");
+    auto* self = static_cast<CameraSession*>(ctx);
+    if (!self)
+        return;
+    self->log("camera disconnected");
+    self->deviceDead_.store(true);
+    if (self->deviceDeadCallback_)
+        self->deviceDeadCallback_("camera disconnected");
 }
 
 void CameraSession::onDeviceError(void* ctx, ACameraDevice* /*device*/, int error)
 {
-    if (auto* self = static_cast<CameraSession*>(ctx))
-        self->log(fmt("camera device error %d", error));
+    auto* self = static_cast<CameraSession*>(ctx);
+    if (!self)
+        return;
+    self->log(fmt("camera device error %d", error));
+    self->deviceDead_.store(true);
+    if (self->deviceDeadCallback_)
+        self->deviceDeadCallback_(fmt("camera device error %d", error));
 }
 
 void CameraSession::dumpSummary(const CameraInfo& info) const

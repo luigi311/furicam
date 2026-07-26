@@ -290,6 +290,16 @@ public:
     // When unset (the probe), the listener drains and counts (frame stats).
     void setFrameCallback(std::function<void()> cb) { frameCallback_ = std::move(cb); }
 
+    // Called (on a binder thread) when the HAL declares the device dead
+    // (onDeviceDisconnected / onDeviceError).  After either callback the device
+    // is unusable per the NDK contract — the bridge should surface this and
+    // offer a reconnect rather than sit on a frozen preview.
+    void setDeviceDeadCallback(std::function<void(const std::string& why)> cb)
+    {
+        deviceDeadCallback_ = std::move(cb);
+    }
+    bool isDeviceDead() const { return deviceDead_.load(); }
+
     // Frame statistics, updated from the image-listener (background) thread.
     int     frameCount()      const { return frameCount_.load(std::memory_order_relaxed); }
     int     lastFrameWidth()  const { return lastFrameW_.load(std::memory_order_relaxed); }
@@ -423,6 +433,8 @@ private:
     std::mutex                 photoMutex_;
     std::deque<std::string>    pendingPhotoPaths_;       // queue for burst — pop front on each callback
     std::function<void(const std::string&, bool)> photoCallback_;
+    std::function<void(const std::string&)>      deviceDeadCallback_;
+    std::atomic<bool>                            deviceDead_{false};
 
     // RAW16 output for DNG capture — swaps in for the analysis stream when raw is
     // enabled.  rawStillTarget_ is added to the still capture request so both a
