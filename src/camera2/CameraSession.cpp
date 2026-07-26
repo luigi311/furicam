@@ -1245,6 +1245,14 @@ bool CameraSession::capturePhoto(const std::string& path, int deviceRotation)
         if (flashMode_ == 1)      aeFlash = ACAMERA_CONTROL_AE_MODE_ON_ALWAYS_FLASH;
         else if (flashMode_ == 2) aeFlash = ACAMERA_CONTROL_AE_MODE_ON_AUTO_FLASH;
         ACaptureRequest_setEntry_u8(req, ACAMERA_CONTROL_AE_MODE, 1, &aeFlash);
+    } else if (flashMode_ == 1 && !ctlTorch_) {
+        // Manual exposure (AE off): the AE flash modes can't be used, so fire the
+        // pulse directly via FLASH_MODE_SINGLE (the AE-off equivalent of
+        // ON_ALWAYS_FLASH, which is verified to fire on this HAL).  The bridge's
+        // auto-flash path switches to flash-on in the dark before capturing, so
+        // flashMode_==1 here covers both ON and (dark) AUTO.
+        uint8_t single = (uint8_t)ACAMERA_FLASH_MODE_SINGLE;
+        ACaptureRequest_setEntry_u8(req, ACAMERA_FLASH_MODE, 1, &single);
     }
 
     int seqId = 0;
