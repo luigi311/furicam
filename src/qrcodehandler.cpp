@@ -83,13 +83,11 @@ void QRCodeHandler::connectToWifi() {
 
     if (!QRCodeHandler::deactivateConnection()) {
         qWarning() << "Failed to deactivate connection";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return;
     }
 
     if (!QRCodeHandler::forgetConnection()) {
         qWarning() << "Failed to forget connection";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return;
     }
 
@@ -98,7 +96,6 @@ void QRCodeHandler::connectToWifi() {
 
     if (!reply.isValid()) {
         qWarning() << "Failed to turn on wifi: " << reply.error().name() + " : " + reply.error().message();
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return;
     } else {
         qDebug() << "Successfully turned on wifi";
@@ -132,7 +129,6 @@ void QRCodeHandler::connectToWifi() {
 
     if (!nmSettings.isValid()) {
         qWarning() << "Failed to connect to dbus";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return;
     }
 
@@ -161,7 +157,6 @@ void QRCodeHandler::connectToWifi() {
         );
     }
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
 }
 
 bool QRCodeHandler::forgetConnection() {
@@ -229,7 +224,6 @@ bool QRCodeHandler::forgetConnection() {
         qDebug() << "SSID not found in the list of connections. Proceeding.";
     }
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return true;
 }
 
@@ -298,7 +292,6 @@ bool QRCodeHandler::deactivateConnection() {
 
                 if (!deactivateReply.isValid()) {
                     qWarning() << "Failed to deactivate path: " << objPath.path() << " " << deactivateReply.error().name() << " : " << reply.error().message();
-                    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
                     return false;
                 } else {
                     qDebug() << "Deactivated path: " << objPath.path() << " successfully";
@@ -313,13 +306,11 @@ bool QRCodeHandler::deactivateConnection() {
     }
 
     dbusArgs.endArray();
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return true;
 }
 
 void QRCodeHandler::onAccessPointAdded(const QDBusMessage &message) {
     if (++accessPointAddedCalled > 1) {
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return;
     }
 
@@ -336,7 +327,6 @@ void QRCodeHandler::onAccessPointAdded(const QDBusMessage &message) {
         SLOT(onAccessPointAdded(QDBusMessage))
     );
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
 }
 
 quint8 QRCodeHandler::getSignalStrength(const QString &ap) {
@@ -347,7 +337,6 @@ quint8 QRCodeHandler::getSignalStrength(const QString &ap) {
 
     if (!device.isValid()) {
         qWarning() << "Failed to connect to dbus";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return 0;
     }
 
@@ -355,14 +344,12 @@ quint8 QRCodeHandler::getSignalStrength(const QString &ap) {
 
     if (!getStrength.isValid()) {
         qWarning() << "Failed to connect to dbus";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return 0;
     }
 
     quint8 strength = getStrength.toUInt();
     qDebug() << "Strength: " << strength;
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return strength;
 }
 
@@ -374,14 +361,12 @@ QList<QString> QRCodeHandler::getWiFiDevices() {
 
     if (!nmInterface.isValid()) {
         qWarning() << "Failed to connect to dbus";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return QList<QString>();
     }
 
     QDBusReply<QList<QDBusObjectPath>> reply = nmInterface.call("GetDevices");
     if (!reply.isValid()) {
         qWarning() << "Failed to get devices";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return QList<QString>();
     }
 
@@ -401,7 +386,6 @@ QList<QString> QRCodeHandler::getWiFiDevices() {
         }
     }
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return devices;
 }
 
@@ -420,7 +404,6 @@ bool QRCodeHandler::scanWiFiAccessPoints() {
 
         if (!ap.isValid()) {
             qWarning() << "Failed to get Access Points";
-            QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
             return false;
         }
 
@@ -444,13 +427,11 @@ bool QRCodeHandler::scanWiFiAccessPoints() {
 
             } else {
                 qWarning() << "Failed to get SSID of Access Point: " << apPath.path();
-                QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
                 return false;
             }
         }
     }
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return false;
 }
 
@@ -469,7 +450,6 @@ quint8 QRCodeHandler::scanWiFiAccessPointsForSignalStrength() {
 
         if (!ap.isValid()) {
             qWarning() << "Failed to get Access Points";
-            QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
             return 0;
         }
 
@@ -493,13 +473,11 @@ quint8 QRCodeHandler::scanWiFiAccessPointsForSignalStrength() {
 
             } else {
                 qWarning() << "Failed to get SSID of Access Point: " << apPath.path();
-                QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
                 return 0;
             }
         }
     }
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return 0;
 }
 
@@ -511,7 +489,6 @@ bool QRCodeHandler::getWiFiEnabled() {
 
     if (!wifi.isValid()) {
         qWarning() << "Failed to connect to dbus";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return false;
     }
 
@@ -519,13 +496,11 @@ bool QRCodeHandler::getWiFiEnabled() {
 
     if (!reply.isValid()) {
         qWarning() << "Failed to get WirelessEnabled";
-        QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
         return false;
     }
 
     bool enabled = reply.toBool();
 
-    QDBusConnection::systemBus().disconnectFromBus(QDBusConnection::systemBus().name());
     return enabled;
 }
 
