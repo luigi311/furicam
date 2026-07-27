@@ -6,6 +6,8 @@
 #include <QObject>
 #include <QTimer>
 #include <QDBusInterface>
+#include <QDBusMessage>
+#include <QDBusError>
 
 class AccelReader : public QObject
 {
@@ -31,6 +33,8 @@ signals:
 
 private slots:
     void readSensor();
+    void onSensorReply(const QDBusMessage &reply);
+    void onSensorError(const QDBusError &error);
 
 private:
     void startSensor();
@@ -42,6 +46,7 @@ private:
     double m_y = 0;
     double m_z = 0;
     bool m_active = false;
+    bool m_pending = false;   // an async D-Bus read is in flight
     int m_sessionId;
 };
 

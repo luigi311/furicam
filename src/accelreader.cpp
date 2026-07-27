@@ -51,7 +51,7 @@ void AccelReader::startSensor()
         return;
     }
 
-    m_sensorIface->call("start", m_sessionId);
+    m_sensorIface->asyncCall("start", m_sessionId);
     m_timer.start(33); // ~30 Hz
 }
 
@@ -60,13 +60,17 @@ void AccelReader::stopSensor()
     m_timer.stop();
 
     if (m_sensorIface && m_sensorIface->isValid()) {
-        m_sensorIface->call("stop", m_sessionId);
+        m_sensorIface->asyncCall("stop", m_sessionId);
     }
 }
 
 void AccelReader::readSensor()
 {
     if (!m_sensorIface || !m_sensorIface->isValid()) return;
+    // Don't fire another request while one is in flight — a sluggish sensor
+    // service would otherwise stack up blocking calls.
+    if (m_pending)
+        return;
 
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "com.nokia.SensorService",
@@ -76,7 +80,15 @@ void AccelReader::readSensor()
     );
     msg << "local.AccelerometerSensor" << "xyz";
 
-    QDBusMessage reply = QDBusConnection::systemBus().call(msg, QDBus::Block, 50);
+    m_pending = true;
+    QDBusConnection::systemBus().callWithCallback(msg, this,
+        SLOT(onSensorReply(QDBusMessage)),
+        SLOT(onSensorError(QDBusError)));
+}
+
+void AccelReader::onSensorReply(const QDBusMessage &reply)
+{
+    m_pending = false;
     if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
         return;
     }
@@ -102,4 +114,10 @@ void AccelReader::readSensor()
         m_z = z;
         emit readingChanged();
     }
+}
+
+void AccelReader::onSensorError(const QDBusError &error)
+{
+    m_pending = false;
+    Q_UNUSED(error);
 }
