@@ -1,3 +1,35 @@
+furicam (1.5.1-1) unstable; urgency=medium
+
+  * Stability: open/close the camera on a worker thread instead of blocking the
+    UI for 2-4 s, and keep the camera stack alive across window focus changes
+    (only the stream stops now) — launch, backgrounding and camera flips no
+    longer freeze or churn the whole camera+GL setup
+  * Stability: guard the cross-thread camera callbacks (frame/analysis/photo)
+    that could crash the app mid-startup or mid-switch, and surface a dead
+    camera HAL with an error + recovery instead of a silent frozen preview
+  * Recording: finalize the MP4 when the app closes mid-recording (was left
+    unplayable), and report a corrupt clip when storage is full instead of
+    failing silently
+  * Capture: a failed shot no longer misfiles the next photo to the wrong
+    filename; fire the flash in pro/manual-exposure mode; map tap-to-focus to
+    the tapped point (was near-centre) on both cameras and at all zoom levels
+  * HDR: survive allocation failures (was an app-killer under memory pressure),
+    stop the unbounded /tmp debug log, and fail a burst loudly on a truncated
+    frame instead of fusing 2 of 3 brackets into a wrong image
+  * Performance: metadata drawer probes a video in one async ffprobe (was three
+    blocking runs), the gallery no longer spawns a gsettings subprocess per
+    item, and the level/accelerometer no longer blocks the UI at 30 Hz
+  * QR/Wi-Fi: stop closing the shared system D-Bus connection after a Wi-Fi QR
+    scan (silently severed GPS, orientation, NetworkManager and flashlight)
+  * Cleanup: remove dead code (unused controllers, flashlight context property,
+    QrCode/ZoomControl QML, the mkvinfo family) and the pointless system-tray
+    icon; fix the ineffective video-bitrate slider by removing it; harden the
+    vendored EXIF parser, DNG writer and codec error paths
+  * Packaging: restore the frameless window hint, install furicam.conf and the
+    polkit rule, drop the stale Qt5 packaging workaround
+
+ -- nico359 <124350776+nico359@users.noreply.github.com>  Mon, 27 Jul 2026 14:24:38 +0200
+
 furicam (1.5.0-1) unstable; urgency=medium
 
   * Camera: add pixel-art (Pixless-style) photo filters with a live GLSL preview
