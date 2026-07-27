@@ -97,11 +97,10 @@ ApplicationWindow {
             focusState.state = "Default"
             settings.sync()
         } else if (!window.firstLoad) {
-            // Guard the async load: re-activating before Camera.qml finished
-            // loading warns "Cannot create new component instance before
-            // completing the previous" and leaves the area blank.
-            if (cameraLoader.status === Loader.Ready || cameraLoader.status === Loader.Null)
-                cameraLoader.active = true;
+            // The camera item stays alive across focus changes now (only the
+            // stream stops), so re-activation just resumes it — no loader
+            // toggle, no teardown/rebuild of the camera+GL stack.
+            window.startCamera();
             cameraLoader.connectSignals();
         }
     }

@@ -192,15 +192,18 @@ Item {
     }
 
     function handleStopCamera() {
+        // Stop streaming but keep the bridge item alive: destroying the whole
+        // camera+GL stack on every focus loss (and rebuilding it on return) is
+        // the app's main startup/switch stability hazard.  cam2.stopCamera()
+        // releases the HAL device; the item and renderer stay, so re-activation
+        // is a cheap re-open instead of a full teardown+recreate.
         cam2.stopCamera()
-        cameraLoader.active = false
     }
 
-    // Returning from the gallery: the preview was never torn down (opening the
-    // gallery just hid it), so only start if the session actually isn't live.
-    // Restarting a live session pointlessly reopens the camera — and in video
-    // mode also rebuilds it with the encoder surface, which is the multi-second
-    // stall on "return to camera".
+    // Returning from the gallery or re-activating the window: the item (and its
+    // GL stack) was kept alive, so only start if the session actually isn't
+    // live.  Restarting a live session pointlessly reopens the camera — and in
+    // video mode also rebuilds it with the encoder surface.
     function handleStartCamera() { if (!cam2.ready) cam2.startCamera() }
 
     function handleSetFocusMode(focusMode) {
