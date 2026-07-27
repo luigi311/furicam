@@ -97,7 +97,11 @@ ApplicationWindow {
             focusState.state = "Default"
             settings.sync()
         } else if (!window.firstLoad) {
-            cameraLoader.active = true;
+            // Guard the async load: re-activating before Camera.qml finished
+            // loading warns "Cannot create new component instance before
+            // completing the previous" and leaves the area blank.
+            if (cameraLoader.status === Loader.Ready || cameraLoader.status === Loader.Null)
+                cameraLoader.active = true;
             cameraLoader.connectSignals();
         }
     }
