@@ -1,3 +1,18 @@
+furicam (1.5.2-1) unstable; urgency=medium
+
+  * HDR: stop the burst's own +3EV frame from feeding the cached base exposure
+    — a second HDR shot no longer computes its EV0/+3 from the previous
+    bracket's longest exposure and comes out far too bright
+  * Gallery: retry the deferred video-thumbnail probe instead of dropping it —
+    the review button now shows a thumbnail right after recording stops, not
+    only after reopening the app
+  * Camera: fix two races from the async-open work — the camera list no longer
+    shows every camera twice (concurrent enumerate), and switching to the
+    selfie camera no longer intermittently fails with "cannot open camera"
+    (close→open device-teardown race; retry the transient busy status)
+
+ -- nico359 <124350776+nico359@users.noreply.github.com>  Sat, 08 Aug 2026 20:59:00 +0200
+
 furicam (1.5.1-1) unstable; urgency=medium
 
   * Stability: open/close the camera on a worker thread instead of blocking the
