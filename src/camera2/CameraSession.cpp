@@ -198,6 +198,10 @@ bool CameraSession::ensureManager()
 
 bool CameraSession::enumerate()
 {
+    // UI thread (availableCameras) and the open worker thread (startCamera) can
+    // both reach here; without the lock their clear()+push_back interleave and
+    // cameras_ ends up with every camera twice.
+    std::lock_guard<std::mutex> lk(camerasMutex_);
     cameras_.clear();
     if (!ensureManager())
         return false;
@@ -389,7 +393,19 @@ bool CameraSession::open(const std::string& id)
     deviceCb_.onDisconnected = &CameraSession::onDeviceDisconnected;
     deviceCb_.onError        = &CameraSession::onDeviceError;
 
-    camera_status_t st = ACameraManager_openCamera(manager_, id.c_str(), &deviceCb_, &device_);
+    // Reopening right after close() can race the HAL's async device teardown on
+    // a camera switch: openCamera then returns CAMERA_IN_USE / MAX_CAMERA_IN_USE
+    // transiently (the prior device isn't fully released in cameraserver yet).
+    // The session close above is waited on, but the DEVICE close isn't — so retry
+    // the busy statuses briefly instead of failing the whole switch.
+    camera_status_t st = ACAMERA_OK;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        st = ACameraManager_openCamera(manager_, id.c_str(), &deviceCb_, &device_);
+        if ((st == ACAMERA_OK && device_)
+            || (st != ACAMERA_ERROR_CAMERA_IN_USE && st != ACAMERA_ERROR_MAX_CAMERA_IN_USE))
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    }
     if (st != ACAMERA_OK || !device_) {
         lastError_ = fmt("ACameraManager_openCamera(%s) failed (status %d)", id.c_str(), (int)st);
         device_ = nullptr;

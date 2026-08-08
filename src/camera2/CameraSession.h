@@ -373,6 +373,7 @@ private:
     ACameraDevice*               device_  = nullptr;
     std::string                  openId_;
     std::vector<CameraInfo>      cameras_;
+    std::mutex                   camerasMutex_;  // guards cameras_ + enumerate (UI + worker threads both call)
     mutable std::string          lastError_;
     ACameraDevice_StateCallbacks deviceCb_{};
 
