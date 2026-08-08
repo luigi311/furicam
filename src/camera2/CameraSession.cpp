@@ -1257,9 +1257,12 @@ bool CameraSession::capturePhoto(const std::string& path, int deviceRotation)
     }
 
     // Per-still callbacks so a hard capture failure pops this shot's path
-    // instead of letting the NEXT photo inherit it.
+    // instead of letting the NEXT photo inherit it.  Still results also feed
+    // the exposure cache — harmless for single shots (their exposure matches
+    // the preview AE) and needed so DNG AsShotNeutral metadata stays fresh.
     stillCb_           = ACameraCaptureSession_captureCallbacks{};
     stillCb_.context   = this;
+    stillCb_.onCaptureCompleted = &CameraSession::onCaptureResult;
     stillCb_.onCaptureFailed = &CameraSession::onCaptureFailed;
 
     ACaptureRequest* req = nullptr;
@@ -1467,7 +1470,13 @@ bool CameraSession::captureBurst(const std::vector<std::string>& paths,
     }
 
     // Per-request failure tracking so a failed frame pops its own path instead
-    // of letting the next successful frame inherit a stale one.
+    // of letting the next successful frame inherit a stale one.  The completed
+    // callback is nulled: onCaptureResult caches SENSOR_EXPOSURE_TIME into
+    // resultExposureNs_, and letting the burst's own +3EV manual frame feed
+    // that cache would make the NEXT burst compute its base from the previous
+    // bracket's longest exposure (self-poisoning — seen as a way-too-bright
+    // HDR whose EV0/+3 both clamp at the sensor max).  Only the repeating
+    // preview request may refresh the exposure cache.
     stillCb_           = ACameraCaptureSession_captureCallbacks{};
     stillCb_.context   = this;
     stillCb_.onCaptureFailed = &CameraSession::onCaptureFailed;
