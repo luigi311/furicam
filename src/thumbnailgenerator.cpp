@@ -17,6 +17,7 @@
 #include <QDebug>
 #include <QStandardPaths>
 #include <QCryptographicHash>
+#include <QTimer>
 
 ThumbnailGenerator::ThumbnailGenerator(QObject *parent) : QObject(parent) {
     qRegisterMetaType<QImage>("QImage");
@@ -35,10 +36,16 @@ void ThumbnailGenerator::setVideoSource(const QString &videoSource) {
 
     // Skip files written in the last couple of seconds: an MP4 still being
     // recorded has no moov atom yet, so ffmpeg exits 183 and the failure is
-    // wasted work (and noisy).  The next gallery open re-probes and succeeds.
+    // wasted work (and noisy).  Retry shortly instead of dropping: the gallery
+    // refresh right after stopRecording() lands inside this window, and the
+    // review button's thumbnail only ever updates via thumbnailGenerated.
     const QFileInfo fi(path);
-    if (fi.lastModified().msecsTo(QDateTime::currentDateTime()) < 2000) {
-        qDebug() << "ThumbnailGenerator: skipping very recent (likely still recording) file:" << path;
+    const qint64 ageMs = fi.lastModified().msecsTo(QDateTime::currentDateTime());
+    if (ageMs < 2000) {
+        qDebug() << "ThumbnailGenerator: deferring very recent (likely still recording) file:" << path;
+        QTimer::singleShot(2000 - ageMs, this, [this, videoSource]() {
+            setVideoSource(videoSource);
+        });
         return;
     }
 
