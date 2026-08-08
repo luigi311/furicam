@@ -29,8 +29,8 @@ Licensed under GPL-2.0.
 
 ## To be improved
 
-- Manual focus
-- Tap to focus seems to ignore where the tap was
+- Manual focus (does not seem to be possible, on the FLX1s at least)
+- Different media player backend in the built-in gallery because video playback is a little choppy even at 1080p
 - Maybe different HDR approach as OpenCV is very memory intensive but results are pretty solid overall
 - DRO (maybe, spollards fork already includes it but it made everything very washed out so i left it out)
 - Feel free to request something if there is anything missing
@@ -64,7 +64,7 @@ sudo apt install cmake \
                  libopencv-photo-dev
 ```
 
-> **Note — Qt6 dev packages vs. the GLES Qt on FuriOS**
+> **Note - Qt6 dev packages vs. the GLES Qt on FuriOS**
 >
 > On current FuriOS the GUI stack is the GLES Qt build (`libqt6gui6-gles`), which
 > only `Provides: libqt6gui6 (= …dfsg-12)` and `Conflicts:` the plain
@@ -72,7 +72,7 @@ sudo apt install cmake \
 > `libqt6gui6 (= …dfsg-15)`, so a normal `apt install qt6-base-dev …` refuses.
 >
 > Work around it by downloading the dev packages and force-installing them (the
-> real GLES libs serve at runtime — only the headers/CMake files are needed):
+> real GLES libs serve at runtime - only the headers/CMake files are needed):
 >
 > ```
 > mkdir -p /tmp/qt6debs && cd /tmp/qt6debs
@@ -80,7 +80,7 @@ sudo apt install cmake \
 > sudo dpkg -i --force-depends /tmp/qt6debs/*.deb
 > ```
 >
-> This leaves apt with one "unmet dependency" for `qt6-base-dev` — harmless for
+> This leaves apt with one "unmet dependency" for `qt6-base-dev` - harmless for
 > building, but every later `apt` command will complain. To restore a clean apt
 > state (e.g. before testing a package upgrade), remove them again:
 >
@@ -131,7 +131,7 @@ With the Qt6 dev headers force-installed as above:
 dpkg-buildpackage -d -us -uc -b
 ```
 
-The `-d` flag skips build-dependency checks — required here both because
+The `-d` flag skips build-dependency checks - required here both because
 `qt6-base-dev`'s `libqt6gui6` dependency is unsatisfiable against the GLES Qt
 (see the note above) and because `libhybris-common.so.1` is present at runtime
 but lacks a proper dev package. `dpkg-shlibdeps` still resolves the runtime
