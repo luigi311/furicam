@@ -229,7 +229,11 @@ void Camera2Bridge::doOpenCamera(int newFacing)
         if (c.id == chosen) {
             isoMin_.store(c.isoMin);
             isoMax_.store(c.isoMax);
-            exposureMinMs_.store((int)(c.exposureMinNs / 1000000));
+            // Floor the manual-exposure minimum at 1ms: the HAL advertises a
+            // sub-ms min (0.1ms) that integer-truncates to 0, which left the
+            // log-scale shutter slider's bottom ~10% reading "1/Infinity" (and
+            // below any exposure the sensor honors anyway).
+            exposureMinMs_.store(std::max(1, (int)(c.exposureMinNs / 1000000)));
             exposureMaxMs_.store((int)(c.exposureMaxNs / 1000000));
             manualSensor_.store(c.manualSensor);
             minFocusDistance_.store(c.minFocusDistance);
@@ -1024,10 +1028,10 @@ void Camera2Bridge::setAutoExposure()
         session_->setAutoExposure();
 }
 
-void Camera2Bridge::setManualExposure(int iso, int exposureMs)
+void Camera2Bridge::setManualExposure(int iso, double exposureMs)
 {
     if (session_)
-        session_->setManualExposure(iso, (int64_t)exposureMs * 1000000LL);
+        session_->setManualExposure(iso, (int64_t)(exposureMs * 1000000.0));
 }
 
 void Camera2Bridge::setExposureCompensation(float ev)

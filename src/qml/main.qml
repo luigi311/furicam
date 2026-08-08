@@ -224,7 +224,7 @@ ApplicationWindow {
         property bool rawEnabled: false     // RAW (DNG) capture alongside JPEG
         property bool manualExposureEnabled: false
         property int  manualIso: 200
-        property int  manualExposureMs: 33
+        property real manualExposureMs: 33
         property bool proModeEnabled: false
 
         onFocusModeChanged: setFocusMode(settings.focusMode)
@@ -748,16 +748,46 @@ ApplicationWindow {
                 id: proShutterSlider
                 width: parent.width - 100 * window.scalingRatio
                 anchors.verticalCenter: parent.verticalCenter
-                from: cameraLoader.item ? cameraLoader.item.exposureMinMs : 1
-                to: cameraLoader.item ? cameraLoader.item.exposureMaxMs : 400
+                // Snap to the standard 1-stop shutter ladder (1/1000 … 1/2.5s).
+                // A continuous log scale rounded to whole ms produced non-standard
+                // speeds (1/58 instead of 1/60) and jittered as the value binding
+                // fed back mid-drag.  Indexing a discrete ladder fixes both: steps
+                // are exact standard speeds and the slider position is the index.
+                // ½-stop ladder of standard speeds (1/N s), plus the 400ms cap as
+                // the final rung (1/2.5s).  Half stops give finer granularity than
+                // the full-stop ladder (~19 rungs, matching the ISO slider's feel)
+                // while staying on conventional photographic speeds.
+                readonly property var ladder: [1000, 700, 500, 350, 250, 180, 125, 90, 60, 45, 30, 20, 15, 11, 8, 6, 4, 3]
+                readonly property int count: ladder.length
+                readonly property real minMs: Math.max(1, cameraLoader.item ? cameraLoader.item.exposureMinMs : 1)
+                readonly property real maxMs: cameraLoader.item ? cameraLoader.item.exposureMaxMs : 400
+                // index 0 = fastest in range; the last index is the maxMs cap itself
+                function msForIndex(i) { return i === count ? maxMs : 1000 / ladder[i] }
+                // clamp a desired ms to the nearest in-range ladder index
+                function indexForMs(ms) {
+                    var best = 0, bestD = 1e9
+                    for (var i = 0; i <= count; i++) {   // <= count: last index is the maxMs cap
+                        var v = msForIndex(i)
+                        if (v < minMs || v > maxMs) continue
+                        var d = Math.abs(Math.log(v / ms))
+                        if (d < bestD) { bestD = d; best = i }
+                    }
+                    return best
+                }
+                from: 0
+                to: count   // last index = maxMs (1/2.5s cap)
                 stepSize: 1
-                value: settings.manualExposureMs
+                value: indexForMs(settings.manualExposureMs)
                 enabled: cameraLoader.item ? cameraLoader.item.manualSensor : false
 
                 onMoved: {
-                    settings.manualExposureMs = value;
+                    // Keep the exact fractional ms (1/60 = 16.667ms) so the true
+                    // speed reaches the HAL — rounding to whole ms sent 17ms and
+                    // the EXIF read 1/58.
+                    var ms = msForIndex(Math.round(value));
+                    settings.manualExposureMs = ms;
                     settings.manualExposureEnabled = true;
-                    cameraLoader.item.setManualExposure(settings.manualIso, value);
+                    cameraLoader.item.setManualExposure(settings.manualIso, ms);
                 }
 
                 background: Rectangle {
@@ -781,9 +811,13 @@ ApplicationWindow {
             }
 
             Text {
-                text: settings.manualExposureMs < 1000
-                    ? "1/" + Math.round(1000 / settings.manualExposureMs) + "s"
-                    : (settings.manualExposureMs / 1000).toFixed(2) + "s"
+                // Snap the label to the same ladder so 1/60 reads "1/60", not the
+                // rounded-ms approximation "1/59".  The slowest rung is the maxMs
+                // cap (1/2.5s), shown as a decimal.
+                readonly property real rungMs: proShutterSlider.msForIndex(proShutterSlider.indexForMs(settings.manualExposureMs))
+                text: rungMs < 1000
+                    ? "1/" + Math.round(1000 / rungMs) + "s"
+                    : (rungMs / 1000).toFixed(2) + "s"
                 color: "#62a0ea"
                 font.pixelSize: 12 * window.scalingRatio
                 font.bold: true

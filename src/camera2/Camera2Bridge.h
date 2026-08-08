@@ -229,7 +229,7 @@ public:
     //   setManualExposure(iso, exposureMs) — switch to AE_MODE_OFF and apply values
     //   setExposureCompensation(ev)        — 0.0 most under, 0.5 neutral, 1.0 most over
     Q_INVOKABLE void setAutoExposure();
-    Q_INVOKABLE void setManualExposure(int iso, int exposureMs);
+    Q_INVOKABLE void setManualExposure(int iso, double exposureMs);
     Q_INVOKABLE void setExposureCompensation(float ev);
     Q_INVOKABLE void setFocusDistance(float diopters);   // 0=infinity
 
