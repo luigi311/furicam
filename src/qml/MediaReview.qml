@@ -14,6 +14,7 @@ import QtQuick.Layouts 1.15
 import QtQuick.Controls 2.15
 import Qt.labs.folderlistmodel 2.15
 import Qt.labs.platform 1.1
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: viewRect
@@ -543,11 +544,18 @@ Rectangle {
                     visible: page.isCurrent && !viewRect.videoPlaying && !viewRect.hideMediaInfo
 
                     Image {
+                        id: playIcon
                         anchors.centerIn: parent
                         anchors.horizontalCenterOffset: 2 * viewRect.scalingRatio
                         source: "icons/playVideo.svg"
                         sourceSize.width: 50 * viewRect.scalingRatio
                         sourceSize.height: 50 * viewRect.scalingRatio
+                        visible: false   // ColorOverlay renders it; raw is gray-on-gray
+                    }
+                    ColorOverlay {
+                        anchors.fill: playIcon
+                        source: playIcon
+                        color: "white"   // match the rest of the UI buttons
                     }
 
                     MouseArea {
@@ -786,11 +794,18 @@ Rectangle {
                 visible: false
 
                 Image {
+                    id: resumeIcon
                     anchors.centerIn: parent
                     anchors.horizontalCenterOffset: 2 * viewRect.scalingRatio
                     source: "icons/playVideo.svg"
                     sourceSize.width: 50 * viewRect.scalingRatio
                     sourceSize.height: 50 * viewRect.scalingRatio
+                    visible: false   // ColorOverlay renders it; raw is gray-on-gray
+                }
+                ColorOverlay {
+                    anchors.fill: resumeIcon
+                    source: resumeIcon
+                    color: "white"
                 }
 
                 MouseArea {
