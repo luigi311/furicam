@@ -901,11 +901,12 @@ ApplicationWindow {
         }
     }
 
-    // HDR capture/processing indicator — sits just above the control bar.
+    // HDR capture/processing indicator — sits just above the topmost control bar
+    // (zoom/pro), not mainBar.top, so it doesn't overlap the zoom slider.
     // "Hold still…" during burst capture, "Processing…" during OpenCV merge.
     Rectangle {
         id: hdrBadge
-        anchors.bottom: mainBar.top
+        anchors.bottom: zoomBar.visible ? zoomBar.top : mainBar.top
         anchors.bottomMargin: 8
         anchors.horizontalCenter: parent.horizontalCenter
         width: hdrBadgeText.implicitWidth + 32
@@ -2094,7 +2095,12 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.topMargin: 10 * window.scalingRatio
 
+        // While recording it would overlap the timer and won't open — disable
+        // (greyed), not hide: toggling `visible` perturbs the shared blur/layout
+        // state and briefly flashed the preview blur on record-start.
         visible: !mediaView.visible
+        enabled: !window.videoCaptured
+        opacity: window.videoCaptured ? 0 : 1
         flat: true
         down: false
 
