@@ -1870,6 +1870,12 @@ ApplicationWindow {
 
                         onClicked: {
                             settings.rawEnabled = !settings.rawEnabled
+                            // RAW+HDR is currently broken (the burst's DNGs are
+                            // written to temp and abandoned, never reaching the
+                            // gallery), so keep them exclusive until raw HDR
+                            // brackets are actually collected.  Enabling RAW drops HDR.
+                            if (settings.rawEnabled && settings.hdrEnabled)
+                                settings.hdrEnabled = false
                             if (cameraLoader.item)
                                 cameraLoader.item.handleSetRaw(settings.rawEnabled)
                         }
@@ -1901,6 +1907,14 @@ ApplicationWindow {
                                 settings.manualExposureEnabled = false
                                 if (cameraLoader.item)
                                     cameraLoader.item.setAutoExposure()
+                            }
+                            // RAW+HDR produces no usable DNGs (burst raws are left
+                            // in temp), so enabling HDR drops RAW too (and restores
+                            // the QR stream RAW had displaced).
+                            if (settings.hdrEnabled && settings.rawEnabled) {
+                                settings.rawEnabled = false
+                                if (cameraLoader.item)
+                                    cameraLoader.item.handleSetRaw(false)
                             }
                         }
                     }
