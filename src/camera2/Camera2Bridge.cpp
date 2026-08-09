@@ -153,6 +153,23 @@ void Camera2Bridge::doOpenCamera(int newFacing)
     };
     // True when the open was superseded/cancelled — publish nothing.
     auto cancelled = [this] { return openCancel_.load(); };
+    // A cancelled open must not strand the camera: switchCamera()/startCamera()
+    // retarget pendingFacing_ and rely on the in-flight worker to re-open, but
+    // if the worker was cancelled it would otherwise go Idle and open nothing
+    // (the intermittent "cannot open camera" on a fast/double camera flip).
+    // Re-launch with the latest requested facing when it differs from this run's.
+    auto relaunchIfRetargeted = [this, newFacing, &cancelled] {
+        if (!cancelled())
+            return false;
+        const int pending = pendingFacing_.load();
+        if (pending != newFacing && openState_.load() == OpenState::Opening) {
+            openCancel_.store(false);
+            openState_.store(OpenState::Idle);
+            startCamera(pending);
+            return true;
+        }
+        return false;
+    };
 
     const int wantFacing = (newFacing >= 0) ? newFacing : lensFacingPref_.load();
 
@@ -187,7 +204,11 @@ void Camera2Bridge::doOpenCamera(int newFacing)
         fail(QStringLiteral("no cameras"));
         return;
     }
-    if (cancelled()) { openState_.store(OpenState::Idle); return; }
+    if (cancelled()) {
+        if (!relaunchIfRetargeted())
+            openState_.store(OpenState::Idle);
+        return;
+    }
 
     bool haveFront = false;
     for (const auto& c : cams)
@@ -250,7 +271,8 @@ void Camera2Bridge::doOpenCamera(int newFacing)
     }
     if (cancelled()) {
         session_->close();
-        openState_.store(OpenState::Idle);
+        if (!relaunchIfRetargeted())
+            openState_.store(OpenState::Idle);
         return;
     }
 
@@ -290,7 +312,8 @@ void Camera2Bridge::doOpenCamera(int newFacing)
     }
     if (cancelled()) {
         session_->close();
-        openState_.store(OpenState::Idle);
+        if (!relaunchIfRetargeted())
+            openState_.store(OpenState::Idle);
         return;
     }
 
