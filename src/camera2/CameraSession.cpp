@@ -1511,6 +1511,17 @@ bool CameraSession::captureBurst(const std::vector<std::string>& paths,
         lastError_ = fmt("captureBurst: ACameraCaptureSession_capture failed (status %d)", (int)cs);
         return false;
     }
+
+    // Re-arm the repeating preview request with its result callback.  On this
+    // HAL the burst capture displaces the preview's per-frame result delivery:
+    // onCaptureResult stops firing after the burst, so resultExposureNs_ freezes
+    // and the NEXT burst reads a stale base exposure (seen as HDR stuck at the
+    // brightness of whatever scene the camera opened on).  Re-submitting the
+    // repeating request restores the result flow — the same thing tap-to-focus
+    // does, which is why tapping "fixed" it.  Only relevant when EV bracketing
+    // actually ran (a plain burst doesn't touch AE).
+    if (!evBrackets.empty() && captureSession_ && previewRequest_)
+        ACameraCaptureSession_setRepeatingRequest(captureSession_, &resultCb_, 1, &previewRequest_, nullptr);
     return true;
 }
 

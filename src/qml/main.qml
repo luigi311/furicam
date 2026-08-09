@@ -1843,6 +1843,11 @@ ApplicationWindow {
                             if (!settings.proModeEnabled && cameraLoader.item) {
                                 settings.manualExposureEnabled = false;
                                 cameraLoader.item.setAutoExposure();
+                            } else if (settings.proModeEnabled) {
+                                // Pro mode takes manual control of exposure, which
+                                // contradicts HDR's exposure bracketing — drop HDR
+                                // (mirrors the HDR toggle dropping pro).
+                                settings.hdrEnabled = false;
                             }
                         }
                     }
@@ -1885,7 +1890,19 @@ ApplicationWindow {
                         }
 
                         background: Rectangle { color: "transparent" }
-                        onClicked: { settings.hdrEnabled = !settings.hdrEnabled }
+                        onClicked: {
+                            settings.hdrEnabled = !settings.hdrEnabled
+                            // HDR drives the sensor exposure itself (AE_MODE_OFF
+                            // bracket), which contradicts pro mode's fixed shutter —
+                            // make them mutually exclusive (like the HDR-disabled
+                            // filters).  Enabling HDR drops pro back to auto.
+                            if (settings.hdrEnabled && settings.proModeEnabled) {
+                                settings.proModeEnabled = false
+                                settings.manualExposureEnabled = false
+                                if (cameraLoader.item)
+                                    cameraLoader.item.setAutoExposure()
+                            }
+                        }
                     }
 
                     Button {
