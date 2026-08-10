@@ -1920,8 +1920,13 @@ bool CameraSession::applyControlsToActive()
     if (!activeSession_ || !activeRequest_)
         return false;   // not streaming yet — state applies when a session starts
     applyControls(activeRequest_);
+    // Re-issue with resultCb_ (NOT nullptr): passing null drops the preview's
+    // per-frame result callback, so onCaptureResult stops firing after the first
+    // control change and resultExposureNs_ freezes — the stale-HDR-base and
+    // first-shot-wrong-exposure bug.  resultCb_ is set up in startPreview before
+    // the first repeating request and only feeds the exposure/AE-state cache.
     camera_status_t cs = ACameraCaptureSession_setRepeatingRequest(
-               activeSession_, nullptr, 1, &activeRequest_, nullptr);
+               activeSession_, &resultCb_, 1, &activeRequest_, nullptr);
     return cs == ACAMERA_OK;
 }
 
