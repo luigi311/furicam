@@ -26,7 +26,6 @@
 #include "../pixelfilter.h"
 
 #include <QDateTime>
-#include <QThreadPool>
 #include <QTimer>
 #include <algorithm>
 #include <chrono>
@@ -126,87 +125,43 @@ QQuickFramebufferObject::Renderer* Camera2Bridge::createRenderer() const
 
 void Camera2Bridge::startCamera(int newFacing)
 {
-    // Kick the blocking open (enumerate → open → session → repeating, 2–4 s on
-    // this HAL) onto a worker so the UI never freezes.  The whole sequence runs
-    // on ONE thread so the HAL sees a single-threaded caller.  A second request
-    // while one is in flight just retargets the facing.
-    pendingFacing_.store(newFacing);
-    if (openState_.load() == OpenState::Opening)
-        return;   // worker picks up the retargeted facing
-    openCancel_.store(false);
-    openState_.store(OpenState::Opening);
-    QThreadPool::globalInstance()->start([this, newFacing] { doOpenCamera(newFacing); });
-}
-
-// The whole blocking open sequence, on a worker thread.  All QML-visible state
-// (ready_, previewReader_, signals) is published via QMetaObject::invokeMethod
-// on the GUI thread, so QML only ever sees a consistent snapshot.
-void Camera2Bridge::doOpenCamera(int newFacing)
-{
-    auto fail = [this](const QString& msg) {
-        openState_.store(OpenState::Idle);
-        QMetaObject::invokeMethod(this, [this, msg] {
-            ready_.store(false);
-            emit readyChanged();
-            emit cameraError(msg);
-        }, Qt::QueuedConnection);
-    };
-    // True when the open was superseded/cancelled — publish nothing.
-    auto cancelled = [this] { return openCancel_.load(); };
-    // A cancelled open must not strand the camera: switchCamera()/startCamera()
-    // retarget pendingFacing_ and rely on the in-flight worker to re-open, but
-    // if the worker was cancelled it would otherwise go Idle and open nothing
-    // (the intermittent "cannot open camera" on a fast/double camera flip).
-    // Re-launch with the latest requested facing when it differs from this run's.
-    auto relaunchIfRetargeted = [this, newFacing, &cancelled] {
-        if (!cancelled())
-            return false;
-        const int pending = pendingFacing_.load();
-        if (pending != newFacing && openState_.load() == OpenState::Opening) {
-            openCancel_.store(false);
-            openState_.store(OpenState::Idle);
-            startCamera(pending);
-            return true;
-        }
-        return false;
-    };
-
+    // Camera-selection facing: use the deferred flip from switchCamera() if
+    // present, otherwise stick with the current lensFacingPref_.  MUST be a
+    // local — lensFacingPref_ feeds previewMirrored() and if we update it
+    // before the new previewReader_ is live, any render() in between draws
+    // the old camera's held frame with the new mirror (the "flipped image"
+    // glitch).  The real store happens after the reader is ready.
     const int wantFacing = (newFacing >= 0) ? newFacing : lensFacingPref_.load();
-
-    // ── Session object (created once, GUI-thread-owned pointer swap is locked) ──
-    {
-        QMutexLocker lk(&lifecycleMutex_);
-        if (!session_) {
-            session_ = std::make_unique<CameraSession>([](const std::string& s) {
-                std::fprintf(stderr, "[camera] %s\n", s.c_str());
-            });
-            session_->setDeviceDeadCallback([this](const std::string& why) {
-                QMetaObject::invokeMethod(this, [this, why] {
-                    ready_.store(false);
-                    emit readyChanged();
-                    emit cameraError(QString::fromStdString(why +
-                                         " — close and reopen the camera"));
-                }, Qt::QueuedConnection);
-            });
-        }
+    if (!session_) {
+        session_ = std::make_unique<CameraSession>([](const std::string& s) {
+            std::fprintf(stderr, "[camera] %s\n", s.c_str());
+        });
+        // The HAL declares the device dead via these — surface it instead of
+        // sitting on a frozen preview.  Queued: the callback fires on a binder
+        // thread.  A reconnect is just startCamera() (open() clears the flag).
+        session_->setDeviceDeadCallback([this](const std::string& why) {
+            QMetaObject::invokeMethod(this, [this, why] {
+                ready_.store(false);
+                emit readyChanged();
+                emit cameraError(QString::fromStdString(why +
+                                     " — close and reopen the camera"));
+            }, Qt::QueuedConnection);
+        });
     }
 
     if (CameraSession::isHostStub()) {
-        fail(QStringLiteral("Camera2 unavailable: host stub build"));
+        emit cameraError(QStringLiteral("Camera2 unavailable: host stub build"));
         return;
     }
+    // ponytail: enumerate once; camera list doesn't change at runtime.
     if (session_->cameras().empty() && !session_->enumerate()) {
-        fail(QString::fromStdString(session_->lastError()));
+        emit cameraError(QString::fromStdString(session_->lastError()));
         return;
     }
+
     const auto& cams = session_->cameras();
     if (cams.empty()) {
-        fail(QStringLiteral("no cameras"));
-        return;
-    }
-    if (cancelled()) {
-        if (!relaunchIfRetargeted())
-            openState_.store(OpenState::Idle);
+        emit cameraError(QStringLiteral("no cameras"));
         return;
     }
 
@@ -221,11 +176,14 @@ void Camera2Bridge::doOpenCamera(int newFacing)
     int chosenIndex = 0;
     const int idx = selectedCameraIndex_.load();
     if (idx >= 0 && idx < (int)cams.size()) {
+        // Explicit camera pick (e.g. the secondary back/macro camera).
         chosen = cams[idx].id;
         chosenOrientation = cams[idx].sensorOrientation;
         chosenFacing = cams[idx].facing;
         chosenIndex = idx;
     } else {
+        // First camera with the wanted facing (camera 0 = main back, not the
+        // secondary macro camera that also reports back-facing).
         chosen = cams.front().id;
         chosenOrientation = cams.front().sensorOrientation;
         bool chosenSet = false;
@@ -240,12 +198,10 @@ void Camera2Bridge::doOpenCamera(int newFacing)
             }
         }
     }
-    {
-        QMutexLocker lk(&lifecycleMutex_);
-        currentCameraId_ = chosen;
-    }
+    currentCameraId_ = chosen;
     emit cameraIdChanged();
 
+    // pony: pull sensor range for manual exposure sliders from the chosen camera
     for (const auto& c : cams) {
         if (c.id == chosen) {
             isoMin_.store(c.isoMin);
@@ -264,18 +220,12 @@ void Camera2Bridge::doOpenCamera(int newFacing)
     }
     emit manualRangeChanged();
 
-    // ── The slow part: open the device (2–4 s) ───────────────────────────────
     if (!session_->open(chosen)) {
-        fail(QString::fromStdString(session_->lastError()));
-        return;
-    }
-    if (cancelled()) {
-        session_->close();
-        if (!relaunchIfRetargeted())
-            openState_.store(OpenState::Idle);
+        emit cameraError(QString::fromStdString(session_->lastError()));
         return;
     }
 
+    // Render-pull mode: schedule a repaint per frame; the renderer acquires.
     session_->setFrameCallback([this] {
         frameCount_.fetch_add(1, std::memory_order_relaxed);
         QMetaObject::invokeMethod(this, [this] {
@@ -283,6 +233,8 @@ void Camera2Bridge::doOpenCamera(int newFacing)
             emit frameCountChanged();
         }, Qt::QueuedConnection);
     });
+
+    // Photo completion (fires on a camera thread) -> marshal to the GUI thread.
     session_->setPhotoCallback([this](const std::string& path, bool ok) {
         const QString p = QString::fromStdString(path);
         QMetaObject::invokeMethod(this, [this, p, ok] {
@@ -290,58 +242,66 @@ void Camera2Bridge::doOpenCamera(int newFacing)
         }, Qt::QueuedConnection);
     });
 
+    // Propagate the user-chosen still resolution for this camera, clamped
+    // inside startPreview() to the sensor's actual max.  No saved choice
+    // means 0 → maxJpegSize() picks the per-sensor max.
     auto it = cameraResolutions_.find(chosen);
     if (it != cameraResolutions_.end() && it->second.first > 0) {
         session_->setJpegSize(it->second.first, it->second.second);
     } else {
+        // No in-session choice yet: fall back to the size persisted across app
+        // restarts (seeded by QML via setSavedResolution before startCamera).
         auto sv = savedResolutions_.find(chosenIndex);
         if (sv != savedResolutions_.end() && sv->second.first > 0) {
             session_->setJpegSize(sv->second.first, sv->second.second);
+            // Promote into the live map so effectiveCaptureSize()/preview crop match.
             cameraResolutions_[chosen] = sv->second;
         }
     }
-    pickPreviewStreamSize();
+    pickPreviewStreamSize();   // match the preview aspect to the chosen still aspect
     if (!session_->startPreview(previewStreamW_, previewStreamH_, AIMAGE_FORMAT_PRIVATE,
                                 AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, 30)) {
+        // Fall back to a universally-supported 16:9 preview if the picked size fails.
         previewStreamW_ = 1280; previewStreamH_ = 720;
         if (!session_->startPreview(previewStreamW_, previewStreamH_, AIMAGE_FORMAT_PRIVATE,
                                     AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, 30)) {
-            fail(QString::fromStdString(session_->lastError()));
+            emit cameraError(QString::fromStdString(session_->lastError()));
             return;
         }
     }
-    if (cancelled()) {
-        session_->close();
-        if (!relaunchIfRetargeted())
-            openState_.store(OpenState::Idle);
-        return;
-    }
 
-    // ── Publish the live session to QML/render atomically on the GUI thread ──
-    {
-        QMutexLocker lk(&lifecycleMutex_);
-        previewReader_ = session_->previewReader();
-    }
+    previewReader_ = session_->previewReader();
+    // Apply any deferred orientation state now that the new reader is live —
+    // all three (sensorOrientation_, lensFacingPref_, previewReader_) feed the
+    // renderer and must change atomically so the old camera's held frame never
+    // renders with the new camera's rotation or mirror.
     sensorOrientation_.store(chosenOrientation);
     if (chosenFacing >= 0)
         lensFacingPref_.store(chosenFacing);
+    // Must run after sensorOrientation_ is updated.
     updateDisplayRotation();
+    // Decode QR/barcodes from the analysis (YUV luma) stream — photo mode only.
     session_->setAnalysisCallback([this](const uint8_t* y, int w, int h, int stride) {
         qrDecode(y, w, h, stride);
     });
     if (hasFrontCamera_.exchange(haveFront) != haveFront)
         emit hasFrontCameraChanged();
+    // Claim the accelerometer so orientation stays live; we read it on-demand
+    // at capture time to tag photos/videos with the device tilt.  The preview
+    // stays portrait-locked — updateDisplayRotation ignores device rotation.
     claimAccelerometer();
+    // Re-apply a pending video-mode request now that preview is streaming (also
+    // re-enters video mode after a camera switch, which reopens the session).
     applyVideoMode();
-    if (session_)
+    // Sync deferred settings that may have been set via QML bindings before the
+    // session was created (flash mode, etc.).  The QML property bindings fire during
+    // component construction, but session_ doesn't exist until startCamera() runs.
+    if (session_) {
         session_->setFlashMode(flashMode_);
-
-    openState_.store(OpenState::Open);
-    QMetaObject::invokeMethod(this, [this] {
-        ready_.store(true);
-        emit readyChanged();
-        update();
-    }, Qt::QueuedConnection);
+    }
+    ready_.store(true);
+    emit readyChanged();
+    update();
 }
 
 void Camera2Bridge::stopCamera()
@@ -353,21 +313,11 @@ void Camera2Bridge::stopCamera()
 
 void Camera2Bridge::stopCameraSession()
 {
-    // An open in flight on the worker can't be joined without blocking the GUI
-    // thread (device open is seconds) — so just cancel it.  The worker checks
-    // openCancel_ between HAL steps, closes whatever it opened, and publishes
-    // nothing; the new startCamera() below will re-open once it's done.
-    if (openState_.load() == OpenState::Opening) {
-        openCancel_.store(true);
-        return;
-    }
-    QMutexLocker lk(&lifecycleMutex_);
     if (session_) {
         session_->setFrameCallback({});
         session_->close();
     }
     previewReader_ = nullptr;
-    openState_.store(OpenState::Idle);
 }
 
 void Camera2Bridge::switchCamera()
@@ -911,9 +861,7 @@ void Camera2Bridge::doSingleCapture(const QString& outputPath)
     const QString path = outputPath.isEmpty() ? defaultPhotoPath() : outputPath;
     QDir().mkpath(QFileInfo(path).absolutePath());
     // Tag this shot with how the phone is currently held.
-    const int rot = queryDeviceRotation();
-    session_->setDeviceRotation(rot);
-    qDebug() << "[camera] capture: deviceRotation" << rot;
+    session_->setDeviceRotation(queryDeviceRotation());
     if (!session_->capturePhoto(path.toStdString(), deviceRotation_.load()))
         emit cameraError(QString::fromStdString(session_->lastError()));
 }

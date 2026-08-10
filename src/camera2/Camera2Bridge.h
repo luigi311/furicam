@@ -322,7 +322,6 @@ signals:
 private:
     // Helpers used by the implementation; not part of the QML surface.
     void initCamera();
-    void doOpenCamera(int facing);            // runs on the open worker thread
     void stopCameraSession();
     void updateDisplayRotation();
     void pickPreviewStreamSize();     // set previewStream{W,H}_ (4:3 full FOV)
@@ -350,23 +349,11 @@ private:
     void setLastPhotoPath(const QString& path);
 
     // ── State ───────────────────────────────────────────────────────────────
-    // Guards session_, previewReader_, and the camera-lifecycle state below
-    // against the open worker thread (startCamera runs the blocking
-    // enumerate/open/session there) and the GUI thread (stop/switch/destructor).
-    mutable QMutex     lifecycleMutex_;
     // Owned NDK / lifecycle objects.
     std::unique_ptr<CameraSession> session_;
     std::unique_ptr<VideoEncoder>  encoder_;
     AImageReader*                  previewReader_  = nullptr;
     AImageReader*                  jpegReader_     = nullptr;
-
-    // Camera-open lifecycle: Idle → Opening → Open → (Closing →) Idle.  A
-    // request to open while one is in flight just retargets the facing; a stop
-    // during open sets a cancel flag the worker checks between HAL steps.
-    enum class OpenState { Idle, Opening, Open };
-    std::atomic<OpenState> openState_ {OpenState::Idle};
-    std::atomic<bool>      openCancel_ {false};
-    std::atomic<int>       pendingFacing_ {-1};   // retarget for an in-flight open
 
     // Status flags read from QML; std::atomic for safe cross-thread access.
     std::atomic<bool>    ready_              {false};
