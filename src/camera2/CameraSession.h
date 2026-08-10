@@ -424,17 +424,17 @@ private:
     int                        jpegQuality_  = 95;       // still JPEG quality [1,100]
     int                        reqJpegW_     = 0;   // requested capture size (0 = max)
     int                        reqJpegH_     = 0;
-    int                        openSensorOrientation_ = 0;
-    int                        openFacing_   = -1;   // ACAMERA_LENS_FACING_* of the open camera
+    std::atomic<int>           openSensorOrientation_ {0};
+    std::atomic<int>           openFacing_   {-1};  // ACAMERA_LENS_FACING_* of the open camera
     std::atomic<int>           deviceRotation_ {0};  // device tilt for capture tagging only
 
     // JPEG_ORIENTATION / MP4 rotation hint for the open camera at the current
     // device rotation (Android convention: + for back, - for front cameras).
     int captureOrientation() const
     {
-        const int sensor = ((openSensorOrientation_ % 360) + 360) % 360;
+        const int sensor = ((openSensorOrientation_.load() % 360) + 360) % 360;
         const int device = ((deviceRotation_.load() % 360) + 360) % 360;
-        const int o = (openFacing_ == ACAMERA_LENS_FACING_FRONT)
+        const int o = (openFacing_.load() == ACAMERA_LENS_FACING_FRONT)
                           ? (sensor - device + 360)
                           : (sensor + device);
         return ((o % 360) + 360) % 360;

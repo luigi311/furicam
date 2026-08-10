@@ -911,7 +911,9 @@ void Camera2Bridge::doSingleCapture(const QString& outputPath)
     const QString path = outputPath.isEmpty() ? defaultPhotoPath() : outputPath;
     QDir().mkpath(QFileInfo(path).absolutePath());
     // Tag this shot with how the phone is currently held.
-    session_->setDeviceRotation(queryDeviceRotation());
+    const int rot = queryDeviceRotation();
+    session_->setDeviceRotation(rot);
+    qDebug() << "[camera] capture: deviceRotation" << rot;
     if (!session_->capturePhoto(path.toStdString(), deviceRotation_.load()))
         emit cameraError(QString::fromStdString(session_->lastError()));
 }
