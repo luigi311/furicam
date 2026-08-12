@@ -1,3 +1,25 @@
+furicam (1.5.3-1) unstable; urgency=medium
+
+  * Camera: revert the async open/close to synchronous — the measured open cost
+    is 390ms, not the overstated figure it was justified on, and the worker
+    thread ordering surfaced a whole class of latent races: a frozen exposure
+    cache, a stranded "cannot open camera" on a fast flip, and 90°-skewed photo
+    orientation.  A single-threaded open has no cross-thread ordering bugs by
+    construction, so the flip, exposure and rotation issues are gone at the root
+  * Camera: keep the preview result callback on applyControlsToActive and after
+    an HDR burst — the exposure cache now tracks the live scene, so the first
+    shot after a lighting change is exposed correctly (HDR base included)
+  * Pro mode: snap the shutter slider to a ½-stop standard ladder (1/1000…1/3
+    plus the max-exposure cap) — even travel per stop, true 1/60 (was 1/58), no
+    "1/Infinity" dead zone at the fast end
+  * UI: make HDR mutually exclusive with pro mode and with RAW (RAW+HDR produced
+    no usable DNGs; pro+HDR contradict on exposure control)
+  * UI: fix the HDR "Hold still/Processing" badge overlapping the zoom slider,
+    stop the settings arrow overlapping the recording timer, and recolor the
+    gray-on-gray gallery play/resume icons white
+
+ -- nico359 <124350776+nico359@users.noreply.github.com>  Wed, 12 Aug 2026 11:40:00 +0200
+
 furicam (1.5.2-1) unstable; urgency=medium
 
   * HDR: stop the burst's own +3EV frame from feeding the cached base exposure
